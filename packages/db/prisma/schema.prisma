@@ -1,0 +1,1343 @@
+// =====================================================================
+// DMS — central data contract. FROZEN after WP0 (see docs/PLAN.md §14).
+//
+// Conventions
+//  - ids: cuid strings (no uuid casts needed in raw SQL)
+//  - money: Decimal(14,2); quantities: Decimal(14,3). Never floats.
+//  - timestamps: timestamptz(3), stored UTC, displayed Africa/Cairo
+//  - tables: snake_case via @@map; COLUMNS KEEP camelCase -> quote them
+//    in raw SQL (e.g. SELECT "runAt" FROM jobs)
+//  - never hard-delete referenced rows: use isActive
+//  - "createdById"-style columns WITHOUT a relation are User.id by convention
+//
+// Sections
+//  A. CORE  organization & access
+//  B. CORE  configuration (request types, workflows, templates)
+//  C. CORE  requests (lines, attachments, steps, history)
+//  D. CORE  infrastructure (notifications, jobs/outbox, exports, bot)
+//  E. EXPENSE MODULE (fleet master data, expense snapshots, SAP)
+//
+// Partial unique indexes that Prisma cannot express live in migration
+// 0002_partial_indexes.sql (listed at the bottom of this file).
+// =====================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------ enums -------------------------------
+
+enum VersionStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum StepType {
+  ROLE // normal step assigned to one role
+  DYNAMIC_CATEGORY_ROLES // slot: expands to one instance per extra role required by line categories
+}
+
+enum StepKind {
+  APPROVAL
+  PAYMENT // approving this step marks the request PAID
+}
+
+enum RequestStatus {
+  IN_REVIEW
+  CORRECTION_REQUESTED
+  APPROVED
+  PAID
+  REJECTED
+  CANCELLED
+}
+
+enum StepInstanceStatus {
+  PENDING // not reached yet (or reset by send-back)
+  ACTIVE // waiting in the role queue
+  AWAITING_CORRECTION // approver asked the submitter for a correction
+  APPROVED
+  NOT_APPLICABLE // condition false -> skipped, recorded
+  REJECTED
+  CANCELLED // request ended before this step was reached
+}
+
+enum SubmissionChannel {
+  TELEGRAM
+  WEB
+}
+
+enum ActorType {
+  USER
+  SUBMITTER
+  SYSTEM
+}
+
+enum LineEditSource {
+  APPROVER
+  SUBMITTER_CORRECTION
+}
+
+enum CorrectionFixType {
+  REUPLOAD
+  AMOUNT
+  BOTH
+}
+
+enum CorrectionStatus {
+  OPEN
+  RESOLVED
+  CANCELLED
+}
+
+enum DuplicateKind {
+  EXACT
+  NEAR
+}
+
+enum DocumentKind {
+  FINAL
+}
+
+enum NotificationChannel {
+  IN_APP
+  TELEGRAM
+  EMAIL
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+}
+
+enum ExportKind {
+  EXCEL
+  ZIP_IMAGES
+  PDF_BUNDLE
+}
+
+enum ExportStatus {
+  QUEUED
+  RUNNING
+  DONE
+  FAILED
+  EXPIRED
+}
+
+enum VehicleStatus {
+  ACTIVE
+  STOPPED
+  UNDER_MAINTENANCE
+}
+
+enum AssignmentSource {
+  MANUAL
+  CHANGE_REQUEST
+  IMPORT
+}
+
+enum VehicleChangeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum SapPostingStatus {
+  PENDING
+  POSTING
+  POSTED
+  FAILED
+}
+
+// =====================================================================
+// A. CORE — organization & access
+// =====================================================================
+
+model Department {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  nameAr    String
+  nameEn    String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  users        User[]
+  scopedRoles  Role[]
+  requestTypes RequestType[]
+  submitters   Submitter[]
+  requests     Request[]
+
+  @@map("departments")
+}
+
+model User {
+  id                 String    @id @default(cuid())
+  username           String    @unique
+  passwordHash       String
+  fullName           String
+  fullNameEn         String?
+  phone              String?
+  email              String?
+  departmentId       String?
+  locale             String    @default("ar")
+  isActive           Boolean   @default(true)
+  mustChangePassword Boolean   @default(false)
+  failedLoginCount   Int       @default(0)
+  lockedUntil        DateTime? @db.Timestamptz(3)
+  lastLoginAt        DateTime? @db.Timestamptz(3)
+  telegramUserId     BigInt?   @unique // optional link for approver notifications
+  telegramChatId     BigInt?
+  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @db.Timestamptz(3)
+
+  department          Department?              @relation(fields: [departmentId], references: [id])
+  roles               UserRole[]
+  sessions            Session[]
+  signatures          Signature[]              @relation("UserSignatures")
+  signaturesUploaded  Signature[]              @relation("SignatureUploadedBy")
+  delegationsGiven    Delegation[]             @relation("DelegationFrom")
+  delegationsReceived Delegation[]             @relation("DelegationTo")
+  auditLogs           AuditLog[]
+  notifications       Notification[]
+  stepActions         RequestStepInstance[]    @relation("StepActedBy")
+  stepsOnBehalf       RequestStepInstance[]    @relation("StepOnBehalfOf")
+  correctionRequests  CorrectionRequest[]
+  lineEdits           LineEdit[]
+  requestEvents       RequestEvent[]
+  locks               RequestLock[]
+  requestsSubmitted   Request[]                @relation("RequestSubmittedByUser")
+  requestsPaid        Request[]                @relation("RequestPaidBy")
+  requestsRejected    Request[]                @relation("RequestRejectedBy")
+  attachmentsUploaded Attachment[]
+  reportExports       ReportExport[]
+  vehicleChangeDecisions VehicleChangeRequest[]
+
+  @@index([departmentId])
+  @@index([isActive])
+  @@map("users")
+}
+
+model Role {
+  id                String   @id @default(cuid())
+  code              String   @unique // e.g. ACCOUNTANT; stable key used by seeds/tests
+  nameAr            String
+  nameEn            String
+  description       String?
+  scopeDepartmentId String? // null = all departments
+  isSuperUser       Boolean  @default(false) // implicitly holds every permission
+  isSystem          Boolean  @default(false) // cannot be deleted/renamed-code from UI
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
+
+  scopeDepartment   Department?                @relation(fields: [scopeDepartmentId], references: [id])
+  users             UserRole[]
+  permissions       RolePermission[]
+  delegations       Delegation[]
+  workflowSteps     WorkflowStep[]
+  stepInstances     RequestStepInstance[]
+  lineCategoryRoles LineCategoryApprovalRole[]
+
+  @@map("roles")
+}
+
+model Permission {
+  code      String @id // exact strings listed in docs/PLAN.md §12
+  groupKey  String
+  nameAr    String
+  nameEn    String
+  sortOrder Int    @default(0)
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId         String
+  permissionCode String
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionCode], references: [code], onDelete: Cascade)
+
+  @@id([roleId, permissionCode])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId       String
+  roleId       String
+  assignedById String?
+  assignedAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+model Delegation {
+  id          String    @id @default(cuid())
+  fromUserId  String
+  toUserId    String
+  roleId      String? // null = all roles of fromUser
+  startsAt    DateTime  @db.Timestamptz(3)
+  endsAt      DateTime  @db.Timestamptz(3)
+  reason      String?
+  revokedAt   DateTime? @db.Timestamptz(3)
+  revokedById String?
+  createdById String
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+
+  fromUser      User                  @relation("DelegationFrom", fields: [fromUserId], references: [id])
+  toUser        User                  @relation("DelegationTo", fields: [toUserId], references: [id])
+  role          Role?                 @relation(fields: [roleId], references: [id])
+  stepInstances RequestStepInstance[]
+
+  @@index([toUserId, startsAt, endsAt])
+  @@index([fromUserId])
+  @@map("delegations")
+}
+
+// One row per login (refresh-token family). Access JWT carries sid = Session.id.
+model Session {
+  id                String    @id @default(cuid())
+  userId            String
+  refreshTokenHash  String    @unique // sha256 of the opaque refresh token
+  previousTokenHash String? // reuse of a rotated token => revoke session
+  expiresAt         DateTime  @db.Timestamptz(3)
+  revokedAt         DateTime? @db.Timestamptz(3)
+  ip                String?
+  userAgent         String?
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+  lastUsedAt        DateTime  @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+// Scanned handwritten signature (versioned; exactly one of userId/submitterId).
+model Signature {
+  id            String    @id @default(cuid())
+  userId        String?
+  submitterId   String?
+  storageKey    String    @unique
+  sha256        String
+  mimeType      String    @default("image/png")
+  width         Int?
+  height        Int?
+  isActive      Boolean   @default(true) // one active per owner (partial unique index)
+  uploadedById  String
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  deactivatedAt DateTime? @db.Timestamptz(3)
+
+  user          User?                 @relation("UserSignatures", fields: [userId], references: [id])
+  submitter     Submitter?            @relation(fields: [submitterId], references: [id])
+  uploadedBy    User                  @relation("SignatureUploadedBy", fields: [uploadedById], references: [id])
+  stepInstances RequestStepInstance[]
+  requests      Request[]
+
+  @@index([userId, isActive])
+  @@index([submitterId, isActive])
+  @@map("signatures")
+}
+
+model AuditLog {
+  id          String    @id @default(cuid())
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  actorType   ActorType @default(USER)
+  actorUserId String?
+  actorLabel  String? // denormalized display name (user, driver, "system")
+  action      String // e.g. user.create, role.permissions.update, request.approve, report.export
+  entityType  String // e.g. User, Role, Vehicle, Request
+  entityId    String?
+  before      Json?
+  after       Json?
+  meta        Json?
+  ip          String?
+  userAgent   String?
+
+  actorUser User? @relation(fields: [actorUserId], references: [id])
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+  @@index([actorUserId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
+
+// Key/value settings (keys + defaults listed in docs/PLAN.md §3.3).
+model Setting {
+  key         String   @id
+  value       Json
+  updatedById String?
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  @@map("settings")
+}
+
+// Generic external submitter (person who files requests through a channel
+// but does not log in to the web). Expense module: kind = "DRIVER".
+model Submitter {
+  id               String    @id @default(cuid())
+  kind             String    @default("DRIVER")
+  code             String    @unique
+  fullName         String
+  nationalId       String?
+  phone            String    @unique // normalized E.164, e.g. +201012345678
+  telegramUserId   BigInt?   @unique
+  telegramChatId   BigInt?
+  telegramUsername String?
+  telegramLinkedAt DateTime? @db.Timestamptz(3)
+  departmentId     String?
+  isActive         Boolean   @default(true)
+  notes            String?
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @db.Timestamptz(3)
+
+  department            Department?               @relation(fields: [departmentId], references: [id])
+  signatures            Signature[]
+  requests              Request[]
+  attachments           Attachment[]
+  requestEvents         RequestEvent[]
+  notifications         Notification[]
+  botSessions           BotSession[]
+  vehicleAssignments    DriverVehicleAssignment[]
+  vehicleChangeRequests VehicleChangeRequest[]
+
+  @@index([kind, isActive])
+  @@index([fullName])
+  @@map("submitters")
+}
+
+// =====================================================================
+// B. CORE — configuration (request types, workflows, templates)
+// =====================================================================
+
+model RequestType {
+  id           String   @id @default(cuid())
+  code         String   @unique // e.g. DRIVER_EXPENSE
+  nameAr       String
+  nameEn       String
+  departmentId String?
+  numberPrefix String   @unique // e.g. DE  (number = PREFIX-YY-000123, <= 16 chars)
+  moduleKey    String? // e.g. "expense"; null = pure-config request type
+  headerFields Json     @default("[]") // FieldDefinition[] (zod: @dms/shared)
+  hasLines     Boolean  @default(true)
+  channels     String[] @default(["TELEGRAM"]) // SubmissionChannel values
+  settings     Json     @default("{}")
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+
+  department     Department?    @relation(fields: [departmentId], references: [id])
+  lineCategories LineCategory[]
+  workflow       Workflow?
+  templates      Template[]
+  requests       Request[]
+
+  @@map("request_types")
+}
+
+// Generic line-item category. Expense module: one row per Expense Type
+// (GL link lives in ExpenseTypeConfig, section E).
+model LineCategory {
+  id               String   @id @default(cuid())
+  requestTypeId    String
+  code             String
+  nameAr           String
+  nameEn           String
+  icon             String? // emoji shown on the Telegram button
+  sortOrder        Int      @default(0)
+  isActive         Boolean  @default(true)
+  extraFields      Json     @default("[]") // FieldDefinition[] asked per line
+  quantityFieldKey String? // if set: quantity = extraValues[key], unitPrice = amount / quantity
+  unitPriceMin     Decimal? @db.Decimal(14, 2) // warn approvers when outside range
+  unitPriceMax     Decimal? @db.Decimal(14, 2)
+  minAttachments   Int      @default(1)
+  maxAttachments   Int      @default(10)
+  allowedMimeTypes String[] @default(["image/jpeg", "image/png", "image/webp", "application/pdf"])
+  maxAmountWarning Decimal? @db.Decimal(14, 2)
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(3)
+
+  requestType   RequestType                @relation(fields: [requestTypeId], references: [id])
+  approvalRoles LineCategoryApprovalRole[]
+  lines         RequestLine[]              @relation("LineCategory")
+  originalLines RequestLine[]              @relation("LineOriginalCategory")
+  expenseConfig ExpenseTypeConfig?
+
+  @@unique([requestTypeId, code])
+  @@index([requestTypeId, isActive, sortOrder])
+  @@map("line_categories")
+}
+
+// "Additional required approval roles" of a line category.
+model LineCategoryApprovalRole {
+  lineCategoryId String
+  roleId         String
+
+  lineCategory LineCategory @relation(fields: [lineCategoryId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id])
+
+  @@id([lineCategoryId, roleId])
+  @@index([roleId])
+  @@map("line_category_approval_roles")
+}
+
+model Workflow {
+  id            String   @id @default(cuid())
+  requestTypeId String   @unique // one workflow per request type; versions below
+  nameAr        String
+  nameEn        String
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
+
+  requestType RequestType       @relation(fields: [requestTypeId], references: [id])
+  versions    WorkflowVersion[]
+
+  @@map("workflows")
+}
+
+model WorkflowVersion {
+  id            String        @id @default(cuid())
+  workflowId    String
+  version       Int
+  status        VersionStatus @default(DRAFT) // exactly one ACTIVE per workflow (partial unique index)
+  note          String?
+  createdById   String?
+  publishedById String?
+  createdAt     DateTime      @default(now()) @db.Timestamptz(3)
+  publishedAt   DateTime?     @db.Timestamptz(3)
+
+  workflow Workflow       @relation(fields: [workflowId], references: [id])
+  steps    WorkflowStep[]
+  requests Request[]
+
+  @@unique([workflowId, version])
+  @@index([workflowId, status])
+  @@map("workflow_versions")
+}
+
+model WorkflowStep {
+  id                String   @id @default(cuid())
+  workflowVersionId String
+  key               String // stable within a version, e.g. "accountant"
+  sortOrder         Int
+  stepType          StepType @default(ROLE)
+  kind              StepKind @default(APPROVAL)
+  nameAr            String
+  nameEn            String
+  roleId            String? // null only for DYNAMIC_CATEGORY_ROLES
+  parallelGroup     String? // consecutive steps sharing a value run in parallel (one stage)
+  condition         Json     @default("{\"type\":\"ALWAYS\"}") // Condition (zod: @dms/shared)
+  allowedActions    String[] @default(["APPROVE", "REQUEST_CORRECTION", "SEND_BACK", "REJECT"])
+  canEditAmounts    Boolean  @default(false)
+  canReclassify     Boolean  @default(false)
+  checklist         Json     @default("[]") // [{key,labelAr,labelEn,required}]
+  slaHours          Int?
+  showInSignatures  Boolean  @default(true)
+
+  workflowVersion WorkflowVersion       @relation(fields: [workflowVersionId], references: [id], onDelete: Cascade)
+  role            Role?                 @relation(fields: [roleId], references: [id])
+  instances       RequestStepInstance[]
+
+  @@unique([workflowVersionId, key])
+  @@index([workflowVersionId, sortOrder])
+  @@index([roleId])
+  @@map("workflow_steps")
+}
+
+model Template {
+  id            String   @id @default(cuid())
+  requestTypeId String
+  code          String
+  nameAr        String
+  nameEn        String
+  isDefault     Boolean  @default(false)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
+
+  requestType RequestType       @relation(fields: [requestTypeId], references: [id])
+  versions    TemplateVersion[]
+
+  @@unique([requestTypeId, code])
+  @@map("templates")
+}
+
+model TemplateVersion {
+  id            String        @id @default(cuid())
+  templateId    String
+  version       Int
+  status        VersionStatus @default(DRAFT) // exactly one ACTIVE per template (partial unique index)
+  layoutKey     String        @default("expense-sheet") // built-in HTML layout renderer
+  config        Json // TemplateConfig (zod: @dms/shared)
+  note          String?
+  createdById   String?
+  publishedById String?
+  createdAt     DateTime      @default(now()) @db.Timestamptz(3)
+  publishedAt   DateTime?     @db.Timestamptz(3)
+
+  template  Template          @relation(fields: [templateId], references: [id])
+  requests  Request[]
+  documents RequestDocument[]
+
+  @@unique([templateId, version])
+  @@index([templateId, status])
+  @@map("template_versions")
+}
+
+// Gap-safe, concurrency-safe numbering: upsert + row lock inside the submit tx.
+model RequestNumberCounter {
+  prefix    String
+  year      Int // two-digit year (Cairo), e.g. 26
+  lastValue Int    @default(0)
+
+  @@id([prefix, year])
+  @@map("request_number_counters")
+}
+
+// =====================================================================
+// C. CORE — requests
+// =====================================================================
+
+model Request {
+  id                   String            @id @default(cuid())
+  number               String            @unique @db.VarChar(16)
+  requestTypeId        String
+  departmentId         String?
+  workflowVersionId    String // pinned at submission (in-flight requests keep their version)
+  templateVersionId    String? // pinned at submission
+  status               RequestStatus     @default(IN_REVIEW)
+  channel              SubmissionChannel
+  submitterId          String?
+  submittedByUserId    String?
+  submitterSignatureId String? // submitter's active signature at submission
+  clientKey            String?           @unique // submit idempotency (double tap / retry)
+  headerValues         Json              @default("{}") // dynamic header fields
+  currency             String            @default("EGP")
+  totalOriginal        Decimal           @db.Decimal(14, 2) // as entered by the submitter
+  totalFinal           Decimal           @db.Decimal(14, 2) // after approver edits
+  lineCount            Int               @default(0)
+  hasDuplicateWarning  Boolean           @default(false)
+  currentStageIndex    Int? // stage currently active; null when finished
+  submittedAt          DateTime          @default(now()) @db.Timestamptz(3)
+  completedAt          DateTime?         @db.Timestamptz(3)
+  paidAt               DateTime?         @db.Timestamptz(3)
+  paidById             String?
+  rejectedAt           DateTime?         @db.Timestamptz(3)
+  rejectedById         String?
+  rejectionReason      String?
+  cancelledAt          DateTime?         @db.Timestamptz(3)
+  rowVersion           Int               @default(0) // bumped on every mutation
+  createdAt            DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime          @updatedAt @db.Timestamptz(3)
+
+  requestType        RequestType           @relation(fields: [requestTypeId], references: [id])
+  department         Department?           @relation(fields: [departmentId], references: [id])
+  workflowVersion    WorkflowVersion       @relation(fields: [workflowVersionId], references: [id])
+  templateVersion    TemplateVersion?      @relation(fields: [templateVersionId], references: [id])
+  submitter          Submitter?            @relation(fields: [submitterId], references: [id])
+  submittedByUser    User?                 @relation("RequestSubmittedByUser", fields: [submittedByUserId], references: [id])
+  submitterSignature Signature?            @relation(fields: [submitterSignatureId], references: [id])
+  paidBy             User?                 @relation("RequestPaidBy", fields: [paidById], references: [id])
+  rejectedBy         User?                 @relation("RequestRejectedBy", fields: [rejectedById], references: [id])
+  lines              RequestLine[]
+  attachments        Attachment[]
+  stepInstances      RequestStepInstance[]
+  correctionRequests CorrectionRequest[]
+  lineEdits          LineEdit[]
+  events             RequestEvent[]
+  lock               RequestLock?
+  documents          RequestDocument[]
+  notifications      Notification[]
+  duplicateFlags     AttachmentDuplicate[] @relation("DupRequest")
+  duplicateRefs      AttachmentDuplicate[] @relation("DupOtherRequest")
+  expense            ExpenseRequest?
+  sapPosting         SapPosting?
+
+  @@index([status, submittedAt])
+  @@index([requestTypeId, status])
+  @@index([departmentId, status])
+  @@index([submitterId, submittedAt])
+  @@index([submittedAt])
+  @@index([paidAt])
+  @@index([workflowVersionId])
+  @@map("requests")
+}
+
+model RequestLine {
+  id                  String    @id @default(cuid())
+  requestId           String
+  lineNo              Int
+  categoryId          String // current category (after reclassification)
+  originalCategoryId  String // as chosen by the submitter — never changed
+  categoryNameAr      String // snapshot of the CURRENT category name
+  categoryNameEn      String
+  originalAmount      Decimal   @db.Decimal(14, 2) // as entered by the submitter — never changed
+  amount              Decimal   @db.Decimal(14, 2) // current/final amount
+  isEdited            Boolean   @default(false)
+  extraValues         Json      @default("{}") // { fieldKey: value } current
+  originalExtraValues Json      @default("{}")
+  quantity            Decimal?  @db.Decimal(14, 3) // e.g. liters
+  unitPrice           Decimal?  @db.Decimal(14, 2) // amount / quantity, rounded 2dp
+  lineDate            DateTime? @db.Date // "expense date"; defaults to submission date (Cairo)
+  note                String?
+  warnings            Json      @default("[]") // [{code, messageAr, messageEn}] recomputed on write
+  createdAt           DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime  @updatedAt @db.Timestamptz(3)
+
+  request            Request             @relation(fields: [requestId], references: [id])
+  category           LineCategory        @relation("LineCategory", fields: [categoryId], references: [id])
+  originalCategory   LineCategory        @relation("LineOriginalCategory", fields: [originalCategoryId], references: [id])
+  attachments        Attachment[]
+  edits              LineEdit[]
+  correctionRequests CorrectionRequest[]
+  events             RequestEvent[]
+  expense            ExpenseLine?
+
+  @@unique([requestId, lineNo])
+  @@index([categoryId])
+  @@index([lineDate])
+  @@map("request_lines")
+}
+
+// One row per changed field. Original values stay on RequestLine.original*.
+model LineEdit {
+  id                  String         @id @default(cuid())
+  requestId           String
+  lineId              String
+  stepInstanceId      String?
+  correctionRequestId String?
+  source              LineEditSource
+  editedByUserId      String?
+  editedBySubmitterId String?
+  field               String // "amount" | "categoryId" | "extra.<key>"
+  oldValue            String?
+  newValue            String?
+  oldLabel            String? // human-readable (e.g. category name)
+  newLabel            String?
+  reason              String
+  createdAt           DateTime       @default(now()) @db.Timestamptz(3)
+
+  request           Request              @relation(fields: [requestId], references: [id])
+  line              RequestLine          @relation(fields: [lineId], references: [id])
+  stepInstance      RequestStepInstance? @relation(fields: [stepInstanceId], references: [id])
+  correctionRequest CorrectionRequest?   @relation(fields: [correctionRequestId], references: [id])
+  editedByUser      User?                @relation(fields: [editedByUserId], references: [id])
+
+  @@index([requestId, createdAt])
+  @@index([lineId])
+  @@map("line_edits")
+}
+
+// Receipt image / PDF. Never deleted once attached to a request; a re-upload
+// marks the old row isCurrent=false + supersededById.
+// Draft uploads (bot): requestId/lineId null, botSessionId set until submit.
+model Attachment {
+  id                    String    @id @default(cuid())
+  requestId             String?
+  lineId                String?
+  botSessionId          String?
+  storageKey            String    @unique
+  thumbKey              String?
+  mimeType              String
+  sizeBytes             Int
+  sha256                String
+  phash                 BigInt? // 64-bit dHash as signed bigint; null for PDFs
+  width                 Int?
+  height                Int?
+  originalName          String?
+  telegramFileUniqueId  String?
+  uploadedBySubmitterId String?
+  uploadedByUserId      String?
+  isCurrent             Boolean   @default(true)
+  supersededById        String?
+  supersededAt          DateTime? @db.Timestamptz(3)
+  correctionRequestId   String? // uploaded in answer to this correction request
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+
+  request               Request?              @relation(fields: [requestId], references: [id])
+  line                  RequestLine?          @relation(fields: [lineId], references: [id])
+  botSession            BotSession?           @relation(fields: [botSessionId], references: [id])
+  uploadedBySubmitter   Submitter?            @relation(fields: [uploadedBySubmitterId], references: [id])
+  uploadedByUser        User?                 @relation(fields: [uploadedByUserId], references: [id])
+  supersededBy          Attachment?           @relation("AttachmentSupersede", fields: [supersededById], references: [id])
+  supersedes            Attachment[]          @relation("AttachmentSupersede")
+  correctionRequest     CorrectionRequest?    @relation("CorrectionUploads", fields: [correctionRequestId], references: [id])
+  targetedByCorrections CorrectionRequest[]   @relation("CorrectionTargetAttachment")
+  duplicateFlags        AttachmentDuplicate[] @relation("DupSource")
+  duplicatedBy          AttachmentDuplicate[] @relation("DupTarget")
+
+  @@index([requestId])
+  @@index([lineId, isCurrent])
+  @@index([botSessionId])
+  @@index([sha256])
+  @@index([createdAt])
+  @@map("attachments")
+}
+
+// Duplicate warning: `attachment` (in `request`) looks like `duplicateOf` (in `otherRequest`).
+model AttachmentDuplicate {
+  id             String        @id @default(cuid())
+  attachmentId   String
+  duplicateOfId  String
+  requestId      String
+  otherRequestId String
+  kind           DuplicateKind
+  distance       Int           @default(0) // hamming distance; 0 for EXACT
+  dismissedAt    DateTime?     @db.Timestamptz(3)
+  dismissedById  String?
+  createdAt      DateTime      @default(now()) @db.Timestamptz(3)
+
+  attachment   Attachment @relation("DupSource", fields: [attachmentId], references: [id])
+  duplicateOf  Attachment @relation("DupTarget", fields: [duplicateOfId], references: [id])
+  request      Request    @relation("DupRequest", fields: [requestId], references: [id])
+  otherRequest Request    @relation("DupOtherRequest", fields: [otherRequestId], references: [id])
+
+  @@unique([attachmentId, duplicateOfId])
+  @@index([requestId])
+  @@index([otherRequestId])
+  @@map("attachment_duplicates")
+}
+
+// One row per (request, step). Rows are REUSED across send-back/correction
+// cycles: they hold the latest state; full history is in RequestEvent.
+model RequestStepInstance {
+  id                     String             @id @default(cuid())
+  requestId              String
+  workflowStepId         String
+  stepKey                String // WorkflowStep.key, or "<slotKey>:<ROLE_CODE>" for dynamic slot expansions
+  stageIndex             Int // steps of one parallel group share a stageIndex
+  sortOrder              Int
+  parallelGroup          String?
+  kind                   StepKind           @default(APPROVAL)
+  nameAr                 String // snapshot
+  nameEn                 String
+  roleId                 String
+  roleNameAr             String // snapshot (signature block title)
+  roleNameEn             String
+  status                 StepInstanceStatus @default(PENDING)
+  activatedAt            DateTime?          @db.Timestamptz(3)
+  dueAt                  DateTime?          @db.Timestamptz(3) // SLA deadline; null while awaiting correction
+  actedAt                DateTime?          @db.Timestamptz(3)
+  actedById              String? // the user who actually approved/rejected (signature owner)
+  onBehalfOfUserId       String? // delegator, when acted via delegation
+  delegationId           String?
+  signatureId            String? // actedBy's active signature at approval time
+  comment                String?
+  checklist              Json? // { key: true }
+  correctionRequestedById String? // user who asked for the open/last correction
+  returnedAt             DateTime?          @db.Timestamptz(3) // came back from correction / send-back
+  lastReminderAt         DateTime?          @db.Timestamptz(3)
+  reminderCount          Int                @default(0)
+  createdAt              DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime           @updatedAt @db.Timestamptz(3)
+
+  request            Request             @relation(fields: [requestId], references: [id])
+  workflowStep       WorkflowStep        @relation(fields: [workflowStepId], references: [id])
+  role               Role                @relation(fields: [roleId], references: [id])
+  actedBy            User?               @relation("StepActedBy", fields: [actedById], references: [id])
+  onBehalfOf         User?               @relation("StepOnBehalfOf", fields: [onBehalfOfUserId], references: [id])
+  delegation         Delegation?         @relation(fields: [delegationId], references: [id])
+  signature          Signature?          @relation(fields: [signatureId], references: [id])
+  correctionRequests CorrectionRequest[]
+  lineEdits          LineEdit[]
+  events             RequestEvent[]
+
+  @@unique([requestId, stepKey])
+  @@index([status, roleId]) // role queues
+  @@index([requestId, stageIndex])
+  @@index([status, dueAt]) // SLA scan
+  @@index([actedById])
+  @@map("request_step_instances")
+}
+
+model CorrectionRequest {
+  id             String            @id @default(cuid())
+  requestId      String
+  stepInstanceId String // the step that asked; the request returns to this same instance
+  requestedById  String
+  lineId         String?
+  attachmentId   String? // specific image, if any
+  reasonCode     String // IMAGE_UNCLEAR | WRONG_AMOUNT | MISSING_IMAGE | OTHER
+  fixType        CorrectionFixType @default(REUPLOAD)
+  comment        String
+  status         CorrectionStatus  @default(OPEN)
+  resolvedAt     DateTime?         @db.Timestamptz(3)
+  resolution     Json? // { newAttachmentIds?: string[], oldAmount?, newAmount? }
+  createdAt      DateTime          @default(now()) @db.Timestamptz(3)
+
+  request          Request             @relation(fields: [requestId], references: [id])
+  stepInstance     RequestStepInstance @relation(fields: [stepInstanceId], references: [id])
+  requestedBy      User                @relation(fields: [requestedById], references: [id])
+  line             RequestLine?        @relation(fields: [lineId], references: [id])
+  targetAttachment Attachment?         @relation("CorrectionTargetAttachment", fields: [attachmentId], references: [id])
+  uploads          Attachment[]        @relation("CorrectionUploads")
+  lineEdits        LineEdit[]
+
+  @@index([requestId, status])
+  @@index([stepInstanceId, status])
+  @@map("correction_requests")
+}
+
+// Per-request timeline (append-only). `type` values: docs/PLAN.md §5.8.
+model RequestEvent {
+  id               String    @id @default(cuid())
+  requestId        String
+  type             String
+  actorType        ActorType
+  actorUserId      String?
+  actorSubmitterId String?
+  stepInstanceId   String?
+  lineId           String?
+  attachmentId     String?
+  comment          String?
+  data             Json? // e.g. { field, old, new } / { toStage } / { viaDelegationId }
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+
+  request        Request              @relation(fields: [requestId], references: [id])
+  actorUser      User?                @relation(fields: [actorUserId], references: [id])
+  actorSubmitter Submitter?           @relation(fields: [actorSubmitterId], references: [id])
+  stepInstance   RequestStepInstance? @relation(fields: [stepInstanceId], references: [id])
+  line           RequestLine?         @relation(fields: [lineId], references: [id])
+
+  @@index([requestId, createdAt])
+  @@index([type, createdAt])
+  @@map("request_events")
+}
+
+// Soft claim/lock: at most one row per request; expired rows are ignored and overwritten.
+model RequestLock {
+  requestId   String   @id
+  userId      String
+  acquiredAt  DateTime @default(now()) @db.Timestamptz(3)
+  heartbeatAt DateTime @default(now()) @db.Timestamptz(3)
+  expiresAt   DateTime @db.Timestamptz(3)
+
+  request Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@index([expiresAt])
+  @@index([userId])
+  @@map("request_locks")
+}
+
+// Locked final PDF (immutable: one FINAL per request, never updated).
+model RequestDocument {
+  id                String       @id @default(cuid())
+  requestId         String
+  templateVersionId String?
+  kind              DocumentKind @default(FINAL)
+  storageKey        String       @unique
+  sha256            String
+  sizeBytes         Int
+  isLocked          Boolean      @default(true)
+  generatedById     String?
+  generatedAt       DateTime     @default(now()) @db.Timestamptz(3)
+
+  request         Request          @relation(fields: [requestId], references: [id])
+  templateVersion TemplateVersion? @relation(fields: [templateVersionId], references: [id])
+
+  @@unique([requestId, kind])
+  @@map("request_documents")
+}
+
+// =====================================================================
+// D. CORE — infrastructure
+// =====================================================================
+
+model Notification {
+  id                   String              @id @default(cuid())
+  channel              NotificationChannel
+  recipientUserId      String?
+  recipientSubmitterId String?
+  type                 String // docs/PLAN.md §5.9
+  requestId            String?
+  titleAr              String?
+  titleEn              String?
+  bodyAr               String
+  bodyEn               String?
+  data                 Json? // { requestNumber, link, buttons, correctionRequestIds, exportId ... }
+  status               NotificationStatus  @default(PENDING) // IN_APP rows are created as SENT
+  error                String?
+  readAt               DateTime?           @db.Timestamptz(3)
+  sentAt               DateTime?           @db.Timestamptz(3)
+  createdAt            DateTime            @default(now()) @db.Timestamptz(3)
+
+  recipientUser      User?      @relation(fields: [recipientUserId], references: [id])
+  recipientSubmitter Submitter? @relation(fields: [recipientSubmitterId], references: [id])
+  request            Request?   @relation(fields: [requestId], references: [id])
+
+  @@index([recipientUserId, channel, readAt, createdAt])
+  @@index([recipientSubmitterId, createdAt])
+  @@index([status, channel])
+  @@map("notifications")
+}
+
+// Background job queue AND transactional outbox: rows are inserted in the
+// same transaction as the business change, claimed with
+// SELECT ... FOR UPDATE SKIP LOCKED.
+model Job {
+  id          String    @id @default(cuid())
+  queue       String    @default("default") // "default" (worker) | "telegram" (bot process)
+  type        String // docs/PLAN.md §7.2
+  payload     Json      @default("{}")
+  status      JobStatus @default(PENDING)
+  priority    Int       @default(0) // higher first
+  runAt       DateTime  @default(now()) @db.Timestamptz(3)
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(8)
+  lockedAt    DateTime? @db.Timestamptz(3)
+  lockedBy    String?
+  lastError   String?
+  result      Json?
+  dedupeKey   String?   @unique // enqueue is a no-op when the key already exists
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+  finishedAt  DateTime? @db.Timestamptz(3)
+
+  @@index([queue, status, runAt])
+  @@index([type, status])
+  @@index([status, lockedAt])
+  @@map("jobs")
+}
+
+model ReportExport {
+  id            String       @id @default(cuid())
+  requestedById String
+  kind          ExportKind
+  filters       Json // ReportFilters
+  options       Json         @default("{}") // { groupBy, folderPattern, ... }
+  status        ExportStatus @default(QUEUED)
+  storageKey    String?
+  fileName      String?
+  sizeBytes     Int?
+  rowCount      Int?
+  error         String?
+  expiresAt     DateTime?    @db.Timestamptz(3)
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
+  finishedAt    DateTime?    @db.Timestamptz(3)
+
+  requestedBy User @relation(fields: [requestedById], references: [id])
+
+  @@index([requestedById, createdAt])
+  @@index([status])
+  @@map("report_exports")
+}
+
+// Telegram conversation state + in-progress draft (one row per Telegram user).
+model BotSession {
+  id                  String    @id @default(cuid())
+  telegramUserId      BigInt    @unique
+  chatId              BigInt
+  submitterId         String?
+  state               String    @default("UNLINKED") // docs/PLAN.md §6
+  draft               Json? // BotDraft
+  correction          Json? // CorrectionCtx
+  draftStartedAt      DateTime? @db.Timestamptz(3)
+  draftUpdatedAt      DateTime? @db.Timestamptz(3)
+  draftExpiresAt      DateTime? @db.Timestamptz(3)
+  draftReminderSentAt DateTime? @db.Timestamptz(3)
+  lastUpdateId        Int? // idempotency against redelivered updates
+  createdAt           DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime  @updatedAt @db.Timestamptz(3)
+
+  submitter   Submitter?   @relation(fields: [submitterId], references: [id])
+  attachments Attachment[]
+
+  @@index([submitterId])
+  @@index([draftExpiresAt])
+  @@map("bot_sessions")
+}
+
+// =====================================================================
+// E. EXPENSE MODULE — fleet master data, expense snapshots, SAP
+// (core tables above must never reference anything in this section,
+//  except the optional 1:1 back-relations Prisma requires)
+// =====================================================================
+
+model VehicleType {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  nameAr    String
+  nameEn    String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  vehicles        Vehicle[]
+  expenseRequests ExpenseRequest[]
+
+  @@map("vehicle_types")
+}
+
+model CostCenter {
+  id        String   @id @default(cuid())
+  code      String   @unique // e.g. MLF450
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  vehicles        Vehicle[]
+  expenseRequests ExpenseRequest[]
+  expenseLines    ExpenseLine[]
+
+  @@map("cost_centers")
+}
+
+model GlAccount {
+  id        String   @id @default(cuid())
+  number    String   @unique // SAP GL number, e.g. 51501800
+  nameAr    String
+  nameEn    String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  expenseTypes ExpenseTypeConfig[]
+  expenseLines ExpenseLine[]
+
+  @@map("gl_accounts")
+}
+
+// Expense Type = LineCategory (core) + this 1:1 extension.
+model ExpenseTypeConfig {
+  lineCategoryId String @id
+  glAccountId    String
+
+  lineCategory LineCategory @relation(fields: [lineCategoryId], references: [id], onDelete: Cascade)
+  glAccount    GlAccount    @relation(fields: [glAccountId], references: [id])
+
+  @@index([glAccountId])
+  @@map("expense_type_configs")
+}
+
+model Vehicle {
+  id             String        @id @default(cuid())
+  number         String        @unique // fleet number, e.g. 2157
+  plateNumber    String?
+  vehicleTypeId  String
+  costCenterId   String
+  status         VehicleStatus @default(ACTIVE)
+  notes          String?
+  lastOdometer   Int? // denormalized: latest submitted reading
+  lastOdometerAt DateTime?     @db.Timestamptz(3)
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime      @updatedAt @db.Timestamptz(3)
+
+  vehicleType     VehicleType               @relation(fields: [vehicleTypeId], references: [id])
+  costCenter      CostCenter                @relation(fields: [costCenterId], references: [id])
+  assignments     DriverVehicleAssignment[]
+  expenseRequests ExpenseRequest[]
+  expenseLines    ExpenseLine[]
+  changesFrom     VehicleChangeRequest[]    @relation("VcrFrom")
+  changesTo       VehicleChangeRequest[]    @relation("VcrTo")
+
+  @@index([status])
+  @@index([costCenterId])
+  @@index([vehicleTypeId])
+  @@map("vehicles")
+}
+
+// History is append/close only: a change closes the open row (validTo) and
+// opens a new one. One open row per driver (partial unique index).
+model DriverVehicleAssignment {
+  id                     String           @id @default(cuid())
+  submitterId            String
+  vehicleId              String
+  validFrom              DateTime         @default(now()) @db.Timestamptz(3)
+  validTo                DateTime?        @db.Timestamptz(3) // null = current
+  source                 AssignmentSource @default(MANUAL)
+  vehicleChangeRequestId String?          @unique
+  note                   String?
+  createdById            String?
+  closedById             String?
+  createdAt              DateTime         @default(now()) @db.Timestamptz(3)
+
+  submitter            Submitter             @relation(fields: [submitterId], references: [id])
+  vehicle              Vehicle               @relation(fields: [vehicleId], references: [id])
+  vehicleChangeRequest VehicleChangeRequest? @relation(fields: [vehicleChangeRequestId], references: [id])
+
+  @@index([submitterId, validTo])
+  @@index([vehicleId, validTo])
+  @@map("driver_vehicle_assignments")
+}
+
+model VehicleChangeRequest {
+  id                   String              @id @default(cuid())
+  submitterId          String
+  fromVehicleId        String?
+  toVehicleId          String? // null when the typed number matched no vehicle
+  requestedVehicleText String? // what the driver typed/selected
+  status               VehicleChangeStatus @default(PENDING)
+  assignedRoleId       String? // role whose holders decide (default: SHIPPING_OFFICER)
+  decidedById          String?
+  decidedAt            DateTime?           @db.Timestamptz(3)
+  decisionComment      String?
+  createdAt            DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime            @updatedAt @db.Timestamptz(3)
+
+  submitter   Submitter                @relation(fields: [submitterId], references: [id])
+  fromVehicle Vehicle?                 @relation("VcrFrom", fields: [fromVehicleId], references: [id])
+  toVehicle   Vehicle?                 @relation("VcrTo", fields: [toVehicleId], references: [id])
+  decidedBy   User?                    @relation(fields: [decidedById], references: [id])
+  assignment  DriverVehicleAssignment?
+
+  @@index([status, createdAt])
+  @@index([submitterId, status])
+  @@map("vehicle_change_requests")
+}
+
+model Treasury {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  name         String
+  cashGlNumber String // SAP cash GL account credited on payment
+  companyCode  String
+  isDefault    Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+
+  expenseRequests ExpenseRequest[]
+
+  @@map("treasuries")
+}
+
+// 1:1 extension of Request for the expense module (typed, indexed header snapshot).
+model ExpenseRequest {
+  requestId        String    @id
+  vehicleId        String
+  vehicleNumber    String // snapshot
+  plateNumber      String?
+  vehicleTypeId    String?
+  vehicleTypeName  String?
+  costCenterId     String
+  costCenterCode   String // snapshot
+  odometer         Int
+  previousOdometer Int?
+  odometerWarning  String? // LOWER_THAN_LAST | UNREALISTIC_JUMP
+  treasuryId       String? // chosen at payment
+  sapDocNumber     String? // copied from SapPosting when POSTED
+  sapFiscalYear    String?
+  sapPostedAt      DateTime? @db.Timestamptz(3)
+
+  request     Request      @relation(fields: [requestId], references: [id])
+  vehicle     Vehicle      @relation(fields: [vehicleId], references: [id])
+  vehicleType VehicleType? @relation(fields: [vehicleTypeId], references: [id])
+  costCenter  CostCenter   @relation(fields: [costCenterId], references: [id])
+  treasury    Treasury?    @relation(fields: [treasuryId], references: [id])
+
+  @@index([vehicleId])
+  @@index([costCenterId])
+  @@index([vehicleTypeId])
+  @@map("expense_requests")
+}
+
+// 1:1 extension of RequestLine: accounting snapshot taken at submission and
+// refreshed when the line is reclassified.
+model ExpenseLine {
+  lineId         String @id
+  requestId      String
+  glAccountId    String
+  glNumber       String
+  glName         String
+  costCenterId   String
+  costCenterCode String
+  vehicleId      String
+  vehicleNumber  String
+
+  line       RequestLine @relation(fields: [lineId], references: [id])
+  glAccount  GlAccount   @relation(fields: [glAccountId], references: [id])
+  costCenter CostCenter  @relation(fields: [costCenterId], references: [id])
+  vehicle    Vehicle     @relation(fields: [vehicleId], references: [id])
+
+  @@index([requestId])
+  @@index([glAccountId])
+  @@index([costCenterId])
+  @@index([vehicleId])
+  @@map("expense_lines")
+}
+
+// Exactly one posting per request, ever (requestId + idempotencyKey unique).
+model SapPosting {
+  id             String           @id @default(cuid())
+  requestId      String           @unique
+  idempotencyKey String           @unique // = Request.id
+  status         SapPostingStatus @default(PENDING)
+  adapter        String // mock | file | s4hana
+  payload        Json // JournalEntryDoc built at payment time
+  attempts       Int              @default(0)
+  lastError      String?
+  nextRetryAt    DateTime?        @db.Timestamptz(3)
+  sapDocNumber   String?
+  sapFiscalYear  String?
+  sapCompanyCode String?
+  postedAt       DateTime?        @db.Timestamptz(3)
+  exportFileKey  String? // file adapter output
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime         @updatedAt @db.Timestamptz(3)
+
+  request     Request             @relation(fields: [requestId], references: [id])
+  attemptLogs SapPostingAttempt[]
+
+  @@index([status, updatedAt])
+  @@map("sap_postings")
+}
+
+model SapPostingAttempt {
+  id            String    @id @default(cuid())
+  postingId     String
+  attemptNo     Int
+  trigger       String    @default("AUTO") // AUTO | MANUAL
+  triggeredById String?
+  startedAt     DateTime  @default(now()) @db.Timestamptz(3)
+  finishedAt    DateTime? @db.Timestamptz(3)
+  success       Boolean?
+  error         String?
+  response      Json?
+
+  posting SapPosting @relation(fields: [postingId], references: [id], onDelete: Cascade)
+
+  @@unique([postingId, attemptNo])
+  @@map("sap_posting_attempts")
+}
+
+// =====================================================================
+// Migration 0002_partial_indexes.sql (hand-written by WP0, exact SQL):
+//   CREATE UNIQUE INDEX workflow_versions_one_active ON workflow_versions ("workflowId") WHERE status = 'ACTIVE';
+//   CREATE UNIQUE INDEX template_versions_one_active ON template_versions ("templateId") WHERE status = 'ACTIVE';
+//   CREATE UNIQUE INDEX signatures_one_active_user ON signatures ("userId") WHERE "isActive" AND "userId" IS NOT NULL;
+//   CREATE UNIQUE INDEX signatures_one_active_submitter ON signatures ("submitterId") WHERE "isActive" AND "submitterId" IS NOT NULL;
+//   CREATE UNIQUE INDEX assignments_one_open_per_driver ON driver_vehicle_assignments ("submitterId") WHERE "validTo" IS NULL;
+//   CREATE UNIQUE INDEX treasuries_one_default ON treasuries ("isDefault") WHERE "isDefault";
+//   CREATE INDEX jobs_due ON jobs (queue, priority DESC, "runAt") WHERE status = 'PENDING';
+//   CREATE INDEX attachments_phash ON attachments (phash) WHERE phash IS NOT NULL AND "requestId" IS NOT NULL;
+// =====================================================================
