@@ -1,0 +1,37 @@
+# Caddy 2 reverse proxy for DMS (HTTPS certificates are automatic once DNS points here).
+# Example only: never run here (no Docker and no public server on the build machine). See docs/ARCHITECTURE.md.
+#
+# Replace dms.example.com with the real host name. Run:  caddy run --config deploy/Caddyfile
+# Ports on the same machine: web 3000, api 4000, bot webhook 4100 (only if BOT_MODE=webhook).
+dms.example.com {
+	encode zstd gzip
+
+	# Bot webhook (Telegram calls this). The path MUST match the path in BOT_WEBHOOK_URL,
+	# e.g. BOT_WEBHOOK_URL=https://dms.example.com/telegram/webhook.
+	# Telegram sends the secret in the X-Telegram-Bot-Api-Secret-Token header (BOT_WEBHOOK_SECRET).
+	handle /telegram/webhook* {
+		reverse_proxy 127.0.0.1:4100
+	}
+
+	# REST API (prefix /api/v1). Also serves the signed file URLs (/api/v1/files/...).
+	handle /api/* {
+		reverse_proxy 127.0.0.1:4000
+	}
+
+	# Web app (Next.js). It also rewrites /api/v1 to the API itself, so the API route above is optional.
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
+
+	# Receipt uploads are at most 15 MB by default (media.maxFileSizeMb). Caddy has no body limit by default.
+	request_body {
+		max_size 20MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+}
