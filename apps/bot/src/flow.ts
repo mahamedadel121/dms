@@ -2,6 +2,7 @@
 import type { Attachment, PrismaClient, Submitter } from '@dms/db';
 import { audit } from '@dms/core/audit';
 import { getSetting } from '@dms/core/config';
+import { verifyLinkToken } from '@dms/core/telegram';
 import { DomainError } from '@dms/core/errors';
 import { submitCorrection, submitRequest, listOpenCorrections, listSubmitterRequests } from '@dms/core/engine';
 import type { OpenCorrection } from '@dms/core/engine';
@@ -108,6 +109,12 @@ export async function handleInput(deps: FlowDeps, s: Session, from: Sender, inpu
   const { prisma } = deps;
   if (input.kind === 'cb') await out.ack();
 
+  // ---- admin-issued link token (deep link / pasted command) ----
+  if (input.kind === 'text') {
+    const m = /^\/start\s+([ud]_[A-Za-z0-9_]{10,62})$/.exec(input.text.trim());
+    if (m) return handleLinkToken(deps, s, from, m[1]!, out);
+  }
+
   // ---- link status ----
   let submitter: Submitter | null = null;
   if (s.submitterId) {
@@ -206,10 +213,71 @@ function splitCb(data: string): [string, string | undefined] {
 }
 
 // ---------------- onboarding ----------------
+async function handleLinkToken(deps: FlowDeps, s: Session, from: Sender, token: string, out: Out): Promise<void> {
+  const { prisma } = deps;
+  const v = verifyLinkToken(token, deps.now());
+  if (!v) return out.say(M.linkInvalid);
+  const tgId = BigInt(from.id);
+
+  if (v.kind === 'u') {
+    const user = await prisma.user.findUnique({ where: { id: v.id } });
+    if (!user || !user.isActive) return out.say(M.linkInvalid);
+    if (user.telegramUserId !== null && user.telegramUserId !== tgId) return out.say(M.linkTaken);
+    const other = await prisma.user.findFirst({ where: { telegramUserId: tgId, id: { not: user.id } }, select: { id: true } });
+    if (other) return out.say(M.linkTaken);
+    try {
+      await prisma.user.update({ where: { id: user.id }, data: { telegramUserId: tgId, telegramChatId: tgId } });
+    } catch {
+      return out.say(M.linkTaken);
+    }
+    await audit(prisma, {
+      actor: { type: 'SYSTEM', label: `telegram:${from.id}` },
+      action: 'user.telegram_link',
+      entityType: 'User',
+      entityId: user.id,
+      after: { telegramUserId: String(from.id) },
+    });
+    return out.say(M.userLinked(user.fullName), { reply: 'remove' });
+  }
+
+  const sub = await prisma.submitter.findUnique({ where: { id: v.id } });
+  if (!sub || !sub.isActive) return out.say(M.linkInvalid);
+  if (sub.telegramUserId !== null && sub.telegramUserId !== tgId) return out.say(M.alreadyLinked);
+  try {
+    await prisma.submitter.update({
+      where: { id: sub.id },
+      data: {
+        telegramUserId: tgId,
+        telegramChatId: tgId,
+        telegramUsername: from.username ?? null,
+        telegramLinkedAt: deps.now(),
+      },
+    });
+  } catch {
+    return out.say(M.alreadyLinked);
+  }
+  await audit(prisma, {
+    actor: { type: 'SUBMITTER', submitterId: sub.id, label: sub.fullName },
+    action: 'bot.linked',
+    entityType: 'Submitter',
+    entityId: sub.id,
+    after: { telegramUserId: from.id },
+    meta: { via: 'admin_link' },
+  });
+  s.submitterId = sub.id;
+  s.state = 'IDLE';
+  const ctx: Ctx = { deps, s, submitter: sub, out };
+  await out.say(M.linked(sub.fullName), { reply: await menuKeyboard(ctx) });
+}
+
 async function handleUnlinked(deps: FlowDeps, s: Session, from: Sender, input: Input, out: Out): Promise<void> {
   const { prisma } = deps;
   s.state = 'UNLINKED';
   const contactKb = { reply: [[{ text: BTN.shareContact, contact: true as const }]] };
+  if (input.kind !== 'contact') {
+    const approver = await prisma.user.findFirst({ where: { telegramUserId: BigInt(from.id) }, select: { id: true } });
+    if (approver) return out.say(M.approverOnly, { reply: 'remove' });
+  }
   if (input.kind === 'text' && input.text.trim().startsWith('/start')) {
     return out.say(M.welcome, contactKb);
   }

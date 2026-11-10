@@ -2,6 +2,7 @@
 import { GrammyError } from 'grammy';
 import type { PrismaClient } from '@dms/db';
 import type { JobHandler } from '@dms/core/jobs';
+import { getConfig } from '@dms/core/config';
 import { BTN } from './messages';
 
 export interface TelegramApi {
@@ -15,6 +16,7 @@ export function createTelegramSendHandler(api: TelegramApi): JobHandler {
     const n = await prisma.notification.findUnique({ where: { id: payload.notificationId } });
     if (!n) return { skipped: 'notification not found' };
     if (n.status === 'SENT' || n.status === 'SKIPPED') return { skipped: n.status }; // idempotent
+    if (n.recipientUserId && !n.recipientSubmitterId) return sendToUser(api, prisma, n);
     const sub = n.recipientSubmitterId
       ? await prisma.submitter.findUnique({ where: { id: n.recipientSubmitterId } })
       : null;
@@ -59,4 +61,31 @@ export function createTelegramSendHandler(api: TelegramApi): JobHandler {
     }
     return { sent: true };
   };
+}
+
+async function sendToUser(
+  api: TelegramApi,
+  prisma: PrismaClient,
+  n: NonNullable<Awaited<ReturnType<PrismaClient['notification']['findUnique']>>>,
+): Promise<Record<string, unknown>> {
+  const user = await prisma.user.findUnique({ where: { id: n.recipientUserId! } });
+  const chatId = user?.telegramChatId ?? user?.telegramUserId ?? null;
+  if (!user || chatId === null) {
+    await prisma.notification.update({ where: { id: n.id }, data: { status: 'SKIPPED', error: 'no telegram chat id' } });
+    return { skipped: 'no chat' };
+  }
+  const data = (n.data ?? {}) as { link?: unknown };
+  const link = typeof data.link === 'string' && data.link.startsWith('/') ? getConfig().WEB_PUBLIC_URL + data.link : undefined;
+  const text = [n.titleAr, n.bodyAr, link].filter(Boolean).join('\n');
+  try {
+    await api.sendMessage(Number(chatId), text);
+  } catch (e) {
+    if (e instanceof GrammyError && (e.error_code === 403 || e.error_code === 400)) {
+      await prisma.notification.update({ where: { id: n.id }, data: { status: 'FAILED', error: e.description } });
+      return { failed: e.description };
+    }
+    throw e;
+  }
+  await prisma.notification.update({ where: { id: n.id }, data: { status: 'SENT', sentAt: new Date(), error: null } });
+  return { sent: true };
 }
