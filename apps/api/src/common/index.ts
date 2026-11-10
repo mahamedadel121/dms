@@ -6,3 +6,5 @@ export * from './error.filter';
 export * from './jwt-auth.guard';
 export * from './permissions.guard';
 export * from './common.module';
+export * from './paging';
+export * from './password';

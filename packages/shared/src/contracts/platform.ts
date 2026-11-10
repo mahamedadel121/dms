@@ -3,13 +3,13 @@ import { z } from 'zod';
 import type { EffectiveRole } from '../types/auth';
 
 // ---------- common ----------
-export const pageQuerySchema = z.object({
+export const platformPageQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(25),
   sort: z.string().optional(), // "field:desc"
   q: z.string().optional(),
 });
-export type PageQuery = z.infer<typeof pageQuerySchema>;
+export type PageQuery = z.infer<typeof platformPageQuerySchema>;
 
 export interface Paged<T> {
   items: T[];
@@ -216,7 +216,7 @@ export const delegationCreateSchema = z
 export type DelegationCreateInput = z.infer<typeof delegationCreateSchema>;
 
 // ---------- audit ----------
-export const auditQuerySchema = pageQuerySchema.extend({
+export const auditQuerySchema = platformPageQuerySchema.extend({
   entityType: z.string().optional(),
   entityId: z.string().optional(),
   actorUserId: z.string().optional(),
@@ -295,7 +295,7 @@ export const MASTER_RESOURCES = [
 ] as const;
 export type MasterResource = (typeof MASTER_RESOURCES)[number];
 
-export const masterListQuerySchema = pageQuerySchema.extend({
+export const masterListQuerySchema = platformPageQuerySchema.extend({
   active: z.enum(['1', '0']).optional(),
   status: z.string().optional(), // vehicles
   vehicleTypeId: z.string().optional(),
@@ -416,7 +416,7 @@ export interface CurrentAssignmentsResult {
   stoppedVehicles: { id: string; number: string; status: string }[];
   driversWithoutVehicle: { id: string; code: string; fullName: string }[];
 }
-export const decisionSchema = z.object({ comment: z.string().nullish() });
+export const decisionSchema = z.object({ comment: z.string().nullish(), toVehicleId: z.string().optional() });
 export type DecisionInput = z.infer<typeof decisionSchema>;
 export interface VehicleChangeRow {
   id: string;
