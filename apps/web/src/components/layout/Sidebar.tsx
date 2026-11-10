@@ -3,52 +3,75 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  ArrowLeftRight, BarChart3, BookOpen, Building2, Car, FileText, GitBranch, Inbox, Landmark, LayoutDashboard, LayoutTemplate,
+  ArrowLeftRight, BarChart3, BookOpen, Building2, Car, FileStack, FileText, GitBranch, Inbox, Landmark, LayoutDashboard, LayoutTemplate,
   Network, Receipt, ScrollText, Server, Settings, Settings2, ShieldCheck, Tags, Truck, UserCheck, UserCog, Users,
   type LucideIcon,
 } from 'lucide-react';
-import { NAV } from '@/lib/nav';
+import { NAV, navSlug } from '@/lib/nav';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/lib/auth';
 import { useT } from '@/lib/i18n';
+import { Icon, Tooltip } from '@/components/ui';
+import { useInboxCount } from './useInboxCount';
 
-const ICONS: Record<string, LucideIcon> = {
-  ArrowLeftRight, BarChart3, BookOpen, Building2, Car, FileText, GitBranch, Inbox, Landmark, LayoutDashboard, LayoutTemplate,
+export const NAV_ICONS: Record<string, LucideIcon> = {
+  ArrowLeftRight, BarChart3, BookOpen, Building2, Car, FileStack, FileText, GitBranch, Inbox, Landmark, LayoutDashboard, LayoutTemplate,
   Network, Receipt, ScrollText, Server, Settings, Settings2, ShieldCheck, Tags, Truck, UserCheck, UserCog, Users,
 };
 
-export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+/** The navigation list (used in the desktop sidebar and inside the mobile drawer). */
+export function Sidebar({ onNavigate, collapsed = false }: { onNavigate?: () => void; collapsed?: boolean }) {
   const { can } = useAuth();
   const { t } = useT();
   const path = usePathname();
+  const inbox = useInboxCount();
+
   return (
-    <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
-      {NAV.map((g) => {
+    <nav aria-label={t('shell.nav.label')} className={cn('flex-1 overflow-y-auto py-3', collapsed ? 'space-y-1 px-2' : 'space-y-5 px-3')}>
+      {NAV.map((g, gi) => {
         const items = g.items.filter((i) => can(i.permission));
         if (items.length === 0) return null;
         return (
           <div key={g.key}>
-            <p className="mb-1.5 px-3 text-xs font-bold uppercase tracking-wider text-slate-400">{t(g.labelKey)}</p>
+            {collapsed ? (
+              gi > 0 && <div className="mx-3 my-2 h-px bg-hairline" />
+            ) : (
+              <p className="mb-1 px-3 text-xs font-medium text-ink-3">{t(g.labelKey)}</p>
+            )}
             <ul className="space-y-0.5">
               {items.map((i) => {
-                const Icon = ICONS[i.icon] ?? FileText;
                 const active = path === i.href || path.startsWith(i.href + '/');
-                return (
-                  <li key={i.href}>
-                    <Link
-                      href={i.href}
-                      onClick={onNavigate}
-                      aria-current={active ? 'page' : undefined}
-                      className={cn(
-                        'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                        active ? 'bg-brand-700 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white',
-                      )}
-                    >
-                      <Icon className="h-4 w-4 shrink-0" aria-hidden />
-                      {t(i.labelKey)}
-                    </Link>
-                  </li>
+                const showBadge = i.href === '/inbox' && inbox.count > 0;
+                const link = (
+                  <Link
+                    href={i.href}
+                    onClick={onNavigate}
+                    data-testid={'nav-' + navSlug(i.href)}
+                    aria-current={active ? 'page' : undefined}
+                    aria-label={collapsed ? t(i.labelKey) : undefined}
+                    className={cn(
+                      'relative flex h-9 items-center gap-3 rounded px-3 text-sm text-ink-2 transition-colors duration-1 hover:bg-surface-3 hover:text-ink',
+                      collapsed && 'justify-center px-0',
+                      active && 'bg-surface font-medium text-ink shadow-card',
+                    )}
+                  >
+                    {active && <span className="absolute inset-y-1.5 start-0 w-[3px] rounded-full bg-brass" />}
+                    <Icon as={NAV_ICONS[i.icon] ?? FileText} size={18} />
+                    {!collapsed && <span className="truncate">{t(i.labelKey)}</span>}
+                    {showBadge && !collapsed && (
+                      <span
+                        data-testid="nav-badge-inbox"
+                        className={cn(
+                          'num ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-medium',
+                          inbox.overdue > 0 ? 'bg-danger text-on-danger' : 'bg-primary text-on-primary',
+                        )}
+                      >
+                        {inbox.count}
+                      </span>
+                    )}
+                  </Link>
                 );
+                return <li key={i.href}>{collapsed ? <Tooltip content={t(i.labelKey)}>{link}</Tooltip> : link}</li>;
               })}
             </ul>
           </div>

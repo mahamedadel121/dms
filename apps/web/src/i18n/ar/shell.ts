@@ -51,6 +51,13 @@ const dict: Dict = {
   'tg.notLinked': "اربط حسابك لتصلك إشعارات الاعتماد على تليجرام.",
   'tg.link': "ربط تليجرام",
   'tg.unlink': "فك الربط",
+  'tg.unlinkConfirm': 'فك ربط تليجرام عن حسابك؟',
+  'tg.unlinked': 'تم فك ربط تليجرام',
+  'user.menu': 'قائمة الحساب',
+  'nav.label': 'التنقل الرئيسي',
+  'profile.device': 'الجهاز',
+  'profile.current': 'الحالية',
+  'profile.signedInAs': 'مسجَّل الدخول باسم',
 };
 
 export default dict;

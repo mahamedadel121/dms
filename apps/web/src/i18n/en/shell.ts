@@ -51,6 +51,13 @@ const dict: Dict = {
   'tg.notLinked': "Link your account to receive approval alerts on Telegram.",
   'tg.link': "Link Telegram",
   'tg.unlink': "Unlink",
+  'tg.unlinkConfirm': 'Unlink Telegram from your account?',
+  'tg.unlinked': 'Telegram unlinked',
+  'user.menu': 'Account menu',
+  'nav.label': 'Main navigation',
+  'profile.device': 'Device',
+  'profile.current': 'Current',
+  'profile.signedInAs': 'Signed in as',
 };
 
 export default dict;

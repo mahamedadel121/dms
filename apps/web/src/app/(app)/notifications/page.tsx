@@ -1,16 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCheck } from 'lucide-react';
+import { Bell, BellOff, CheckCheck, ChevronRight } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { useT } from '@/lib/i18n';
-import { formatDateTime } from '@/lib/format';
 import type { Paged } from '@/lib/types';
-import { Badge, Button, Card, Checkbox, EmptyState, ErrorBlock, LoadingBlock, PageHeader, Pagination } from '@/components/ui';
+import { Button, Card, Checkbox, DateText, EmptyState, ErrorBlock, Icon, Page, PageHeader, Pagination, SkeletonRows } from '@/components/ui';
 import { notificationLink, notificationText, type NotificationDto } from '@/components/layout/NotificationsBell';
+import { groupByDay } from '@/features/common/groupByDay';
 
 const PAGE_SIZE = 20;
 
@@ -30,50 +30,73 @@ export default function NotificationsPage() {
   const readOne = useMutation({ mutationFn: (id: string) => api.post(`/notifications/${id}/read`), onSuccess: refresh });
   const readAll = useMutation({ mutationFn: () => api.post('/notifications/read-all'), onSuccess: refresh });
 
+  const groups = useMemo(() => groupByDay(list.data?.items ?? [], (n) => n.createdAt), [list.data]);
+
   return (
-    <>
+    <Page testId="page-notifications" width="narrow">
       <PageHeader
-        title={t('common.notif.title')}
+        title={t('shell.page.notifications')}
         actions={
           <>
             <Checkbox label={t('common.notif.unreadOnly')} checked={unread} onChange={(c) => { setUnread(c); setPage(1); }} />
-            <Button variant="secondary" icon={<CheckCheck className="h-4 w-4" />} loading={readAll.isPending} onClick={() => readAll.mutate()}>
-              {t('common.notif.markAll')}
+            <Button variant="secondary" icon={<Icon as={CheckCheck} size={16} />} loading={readAll.isPending} onClick={() => readAll.mutate()}>
+              {t('shell.notif.markAll')}
             </Button>
           </>
         }
       />
-      <Card padded={false}>
-        {list.isLoading && <LoadingBlock />}
-        {list.error && <div className="p-4"><ErrorBlock message={errorMessage(list.error)} /></div>}
-        {list.data && list.data.items.length === 0 && <EmptyState title={t('common.notif.empty')} />}
-        <ul className="divide-y divide-slate-100">
-          {list.data?.items.map((n) => {
-            const { title, body } = notificationText(n, locale);
-            const link = notificationLink(n);
-            return (
-              <li key={n.id}>
-                <button
-                  type="button"
-                  className={cn('block w-full px-4 py-3 text-start hover:bg-slate-50', !n.readAt && 'bg-sky-50/60')}
-                  onClick={() => {
-                    if (!n.readAt) readOne.mutate(n.id);
-                    if (link) router.push(link);
-                  }}
-                >
-                  <div className="flex items-center gap-2">
-                    {title && <span className="font-semibold text-slate-900">{title}</span>}
-                    {!n.readAt && <Badge tone="blue">{t('common.notif.unread')}</Badge>}
-                    <span className="ms-auto text-xs text-slate-400">{formatDateTime(n.createdAt)}</span>
-                  </div>
-                  <p className="mt-0.5 text-sm text-slate-700">{body}</p>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-        {list.data && list.data.total > PAGE_SIZE && <Pagination page={page} pageSize={PAGE_SIZE} total={list.data.total} onPageChange={setPage} />}
-      </Card>
-    </>
+      {list.isLoading && <SkeletonRows rows={6} cols={1} />}
+      {list.error && <ErrorBlock message={errorMessage(list.error)} onRetry={() => void list.refetch()} />}
+      {list.data && list.data.items.length === 0 && (
+        <Card>
+          <EmptyState icon={<Icon as={BellOff} size={24} />} title={t('shell.notif.empty')} />
+        </Card>
+      )}
+      {groups.map((g) => (
+        <section key={g.day} className="animate-rise">
+          <h2 className="mb-2 px-1 text-sm font-medium text-ink-2">
+            <DateText value={g.items[0]?.createdAt} mode="long" />
+          </h2>
+          <Card padded={false}>
+            <ul className="divide-y divide-hairline">
+              {g.items.map((n) => {
+                const { title, body } = notificationText(n, locale);
+                const link = notificationLink(n);
+                return (
+                  <Fragment key={n.id}>
+                    <li>
+                      <button
+                        type="button"
+                        data-testid="notification-row"
+                        data-unread={n.readAt ? 'false' : 'true'}
+                        className="flex w-full items-start gap-3 px-4 py-3 text-start hover:bg-surface-2"
+                        onClick={() => {
+                          if (!n.readAt) readOne.mutate(n.id);
+                          if (link) router.push(link);
+                        }}
+                      >
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-ink-2">
+                          <Icon as={Bell} size={16} />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-center gap-2">
+                            {!n.readAt && <span className="h-2 w-2 shrink-0 rounded-full bg-brass" aria-hidden />}
+                            {title && <span className={cn('text-sm text-ink', !n.readAt && 'font-medium')}>{title}</span>}
+                          </span>
+                          <span className="block text-sm text-ink-2">{body}</span>
+                          <DateText value={n.createdAt} mode="relative" className="mt-0.5 block text-xs text-ink-3" />
+                        </span>
+                        {link && <Icon as={ChevronRight} size={16} mirror className="mt-1.5 text-ink-3" />}
+                      </button>
+                    </li>
+                  </Fragment>
+                );
+              })}
+            </ul>
+          </Card>
+        </section>
+      ))}
+      {list.data && list.data.total > PAGE_SIZE && <Pagination page={page} pageSize={PAGE_SIZE} total={list.data.total} onPageChange={setPage} />}
+    </Page>
   );
 }

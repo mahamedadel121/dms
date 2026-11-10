@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { NAV } from '@/lib/nav';
-import { LoadingBlock } from '@/components/ui/Display';
+import { BrandMark } from '@/components/brand/BrandMark';
 
 /** Sends the user to the first page their permissions allow. */
 export default function Home() {
@@ -16,5 +16,9 @@ export default function Home() {
     const first = NAV.flatMap((g) => g.items).find((i) => can(i.permission));
     router.replace(first?.href ?? '/profile');
   }, [loading, me, can, router]);
-  return <LoadingBlock />;
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-canvas">
+      <BrandMark size={48} className="animate-pulse" />
+    </div>
+  );
 }
