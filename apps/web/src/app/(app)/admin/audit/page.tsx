@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Lock } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { cairoDayToIso } from '@/lib/format';
+import { diffObjects } from '@/features/admin/diff';
 import type { Paged } from '@/lib/types';
 import {
   Badge, Code, DataTable, DateRange, DateText, Drawer, DL, DLItem, ErrorBlock, FilterBar, FormField, Icon, Input, LookupSelect, Page, PageHeader, SearchInput,
@@ -29,13 +30,61 @@ interface AuditRow {
 const PAGE_SIZE = 25;
 const EMPTY = { q: '', action: '', entityType: '', entityId: '', actorUserId: '', from: '', to: '' };
 
-/** Raw JSON panel (cut C3: no field-level diff viewer yet; `features/admin/diff.ts` is ready for it). */
+/** Raw JSON panel. */
 function Json({ label, value }: { label: string; value: unknown }) {
   if (value === null || value === undefined) return null;
   return (
     <div>
       <p className="mb-1 text-xs font-medium text-ink-3">{label}</p>
       <pre dir="ltr" className="code max-h-64 overflow-auto rounded border border-hairline bg-surface-2 p-3 text-xs leading-relaxed text-ink">{JSON.stringify(value, null, 2)}</pre>
+    </div>
+  );
+}
+
+/** Field-level before/after diff (nested paths) with a raw JSON toggle. */
+function DiffPanel({ row }: { row: AuditRow }) {
+  const { t } = useT();
+  const [raw, setRaw] = useState(false);
+  const entries = useMemo(() => diffObjects(row.before, row.after), [row.before, row.after]);
+  const show = (v: unknown) => (v === undefined ? '' : String(v));
+  return (
+    <div className="space-y-3" data-testid="audit-diff">
+      {entries.length === 0 ? (
+        <p className="text-sm text-ink-3" data-testid="audit-diff-empty">{t('admin.audit.diff.noChanges')}</p>
+      ) : (
+        <div className="overflow-x-auto rounded border border-hairline">
+          <table className="w-full text-xs">
+            <thead className="bg-surface-2 text-ink-3">
+              <tr>
+                <th className="px-3 py-2 text-start font-medium">{t('admin.audit.diff.field')}</th>
+                <th className="px-3 py-2 text-start font-medium">{t('admin.audit.before')}</th>
+                <th className="px-3 py-2 text-start font-medium">{t('admin.audit.after')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e) => (
+                <tr key={e.key} data-testid="audit-diff-row" data-kind={e.kind} className="border-t border-hairline align-top">
+                  <td className="px-3 py-2">
+                    <Code className="text-xs">{e.key}</Code>
+                    <span className="block text-[11px] text-ink-3">{t(`admin.audit.diff.${e.kind}`)}</span>
+                  </td>
+                  <td dir="ltr" className={`code break-all px-3 py-2 ${e.kind !== 'added' ? 'bg-danger-bg' : ''}`}>{show(e.before)}</td>
+                  <td dir="ltr" className={`code break-all px-3 py-2 ${e.kind !== 'removed' ? 'bg-success-bg' : ''}`}>{show(e.after)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <button type="button" className="text-xs font-medium text-primary hover:underline" aria-expanded={raw} onClick={() => setRaw((v) => !v)} data-testid="audit-raw-toggle">
+        {raw ? t('admin.audit.diff.hideRaw') : t('admin.audit.diff.showRaw')}
+      </button>
+      {raw && (
+        <div className="space-y-4" data-testid="audit-raw">
+          <Json label={t('admin.audit.before')} value={row.before} />
+          <Json label={t('admin.audit.after')} value={row.after} />
+        </div>
+      )}
     </div>
   );
 }
@@ -161,8 +210,7 @@ export default function AuditPage() {
               </DLItem>
               {row.ip && <DLItem label={t('admin.audit.ip')}><Code>{row.ip}</Code></DLItem>}
             </DL>
-            <Json label={t('admin.audit.before')} value={row.before} />
-            <Json label={t('admin.audit.after')} value={row.after} />
+            {(row.before != null || row.after != null) && <DiffPanel key={row.id} row={row} />}
             <Json label={t('admin.audit.meta')} value={row.meta} />
           </div>
         )}

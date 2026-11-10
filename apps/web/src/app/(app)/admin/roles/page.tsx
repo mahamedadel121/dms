@@ -8,7 +8,7 @@ import { useAuth } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { useT } from '@/lib/i18n';
 import {
-  Badge, Button, Card, Code, EmptyState, ErrorBlock, FormField, Icon, Input, LookupSelect, Modal, Page, PageHeader, SearchInput, SkeletonRows, Tabs, Textarea,
+  Badge, Button, Card, Code, EmptyState, ErrorBlock, FormField, Icon, Input, LookupSelect, Modal, Page, PageHeader, SearchInput, Select, SkeletonRows, Switch, Tabs, Textarea,
   fieldErrorsFromApi, requiredErrors, useToast,
 } from '@/components/ui';
 import { diffMatrix, filterPermissions, groupState, toggleGroup as toggleGroupSet } from '@/features/admin/matrixModel';
@@ -59,6 +59,7 @@ export default function RolesPage() {
   const [errors, setErrors] = useState<Record<string, string | undefined>>({});
   const [search, setSearch] = useState('');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [mobileRole, setMobileRole] = useState('');
   const [hover, setHover] = useState<{ row: string | null; col: string | null }>({ row: null, col: null });
 
   useEffect(() => {
@@ -66,6 +67,7 @@ export default function RolesPage() {
   }, [matrix.data]);
 
   const roles = matrix.data?.roles ?? rolesOnly.data ?? [];
+  const activeRole = matrix.data?.roles.find((r) => r.id === mobileRole) ?? matrix.data?.roles[0];
   const changes = useMemo(() => (matrix.data ? diffMatrix(matrix.data.grants, draft) : []), [draft, matrix.data]);
   const changed = useMemo(() => changes.map((c) => c.roleId), [changes]);
   const changedCells = useMemo(() => {
@@ -163,7 +165,7 @@ export default function RolesPage() {
           <div className="max-w-sm">
             <SearchInput testId="matrix-search" value={search} onChange={setSearch} placeholder={t('admin.matrix.search')} />
           </div>
-          <div data-testid="matrix" className="max-h-[calc(100dvh-220px)] overflow-auto rounded-lg border border-hairline bg-surface">
+          <div data-testid="matrix" className="hidden max-h-[calc(100dvh-220px)] overflow-auto rounded-lg border border-hairline bg-surface lg:block">
             <table className="min-w-full border-separate border-spacing-0 text-sm">
               <thead>
                 <tr>
@@ -202,6 +204,29 @@ export default function RolesPage() {
             </table>
             {groups.length === 0 && <EmptyState compact title={t('admin.matrix.empty')} />}
           </div>
+          {activeRole && (
+            <div data-testid="matrix-mobile" className="space-y-3 lg:hidden">
+              <FormField label={t('admin.roles.pickRole')}>
+                {(id) => <Select id={id} data-testid="matrix-role-select" value={activeRole.id} options={matrix.data.roles.map((r) => ({ value: r.id, label: `${name(r)} (${r.code})` }))} onChange={setMobileRole} />}
+              </FormField>
+              {groups.map(([group, perms]) => (
+                <RoleGroupCard
+                  key={group}
+                  group={group}
+                  perms={perms}
+                  role={activeRole}
+                  set={sets[activeRole.id] ?? new Set<string>()}
+                  changedCells={changedCells}
+                  locale={locale}
+                  collapsed={collapsed.has(group)}
+                  onCollapse={() => toggleCollapse(group)}
+                  onToggle={toggle}
+                  onToggleGroup={toggleGroup}
+                />
+              ))}
+              {groups.length === 0 && <EmptyState compact title={t('admin.matrix.empty')} />}
+            </div>
+          )}
           <p className="text-xs text-ink-3">{t('admin.roles.superNote')}</p>
           {changed.length > 0 && (
             <div className="sticky bottom-4 z-sticky mx-auto flex max-w-xl flex-wrap items-center justify-between gap-3 rounded-lg border border-hairline bg-surface px-4 py-3 shadow-pop">
@@ -344,5 +369,62 @@ function GroupRows({
           </tr>
         ))}
     </>
+  );
+}
+
+/** Mobile accordion: one permission group of the selected role (tri-state group toggle + one switch per permission). */
+function RoleGroupCard({
+  group, perms, role, set, changedCells, locale, collapsed, onCollapse, onToggle, onToggleGroup,
+}: {
+  group: string;
+  perms: PermissionRow[];
+  role: RoleRow;
+  set: Set<string>;
+  changedCells: Set<string>;
+  locale: 'ar' | 'en';
+  collapsed: boolean;
+  onCollapse: () => void;
+  onToggle: (roleId: string, code: string) => void;
+  onToggleGroup: (roleId: string, codes: string[], on: boolean) => void;
+}) {
+  const { t } = useT();
+  const codes = perms.map((p) => p.code);
+  const key = `admin.roles.group.${group}`;
+  const title = t(key) === key ? group : t(key);
+  return (
+    <section data-testid="matrix-group" data-group={group} className="rounded-lg border border-hairline bg-surface">
+      <header className="flex h-11 items-center justify-between gap-2 bg-surface-2 px-3">
+        <button type="button" className="flex flex-1 items-center gap-2 text-start text-13 font-medium text-ink" onClick={onCollapse} aria-expanded={!collapsed} aria-label={collapsed ? t('admin.matrix.expand') : t('admin.matrix.collapse')}>
+          <Icon as={collapsed ? ChevronRight : ChevronDown} size={16} mirror={collapsed} className="text-ink-3" />
+          {title}
+        </button>
+        {role.isSuperUser ? (
+          <Icon as={Lock} size={14} className="text-ink-disabled" label={t('admin.roles.superUser')} />
+        ) : (
+          <TriCheckbox state={groupState(codes, set)} onChange={(on) => onToggleGroup(role.id, codes, on)} label={`${role.code} ${title}`} />
+        )}
+      </header>
+      {!collapsed && (
+        <ul className="divide-y divide-hairline">
+          {perms.map((p) => {
+            const dirty = !role.isSuperUser && changedCells.has(`${role.id}|${p.code}`);
+            return (
+              <li key={p.code} className={cn('flex items-center justify-between gap-3 px-3 py-2', dirty && 'bg-brass-tint')}>
+                <span className="min-w-0">
+                  <span className="block text-sm text-ink">{locale === 'ar' ? p.nameAr : p.nameEn}</span>
+                  <Code className="text-[11px] text-ink-3">{p.code}</Code>
+                </span>
+                <Switch
+                  checked={role.isSuperUser || set.has(p.code)}
+                  disabled={role.isSuperUser}
+                  onChange={() => onToggle(role.id, p.code)}
+                  label={<span className="sr-only">{`${role.code} ${p.code}`}</span>}
+                />
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
