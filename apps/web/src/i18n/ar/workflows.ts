@@ -120,6 +120,7 @@ const dict: Dict = {
   'badge.parallel': 'متوازية',
   'parallelGroup': 'مجموعة متوازية',
   'preview': 'معاينة المسار',
+  'previewEmpty': 'لا توجد خطوات بعد.',
   'sim.result': 'تنطبق {n} من {total} خطوات',
   'noActiveVersion': 'لا يوجد إصدار فعّال',
   'open': 'فتح',

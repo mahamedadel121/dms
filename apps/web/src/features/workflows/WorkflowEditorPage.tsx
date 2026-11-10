@@ -14,7 +14,8 @@ import { useTr } from '../common/useTr';
 import type { WorkflowDto, WorkflowStepDto, WorkflowVersionDto } from '../types';
 import { StepCard } from './StepCard';
 import { describeCondition } from './describe';
-import { countApplicable, extractApplicable, type SimulationResult } from './preview';
+import { RouteStepper } from '@/features/requests/RouteStepper';
+import { countApplicable, extractApplicable, previewSteps, type SimulationResult } from './preview';
 import { blankStep, fromDto, moveStep, toInput, validateSteps, type EditableStep } from './stepModel';
 
 export function WorkflowEditorPage({ id }: { id: string }) {
@@ -283,6 +284,15 @@ export function WorkflowEditorPage({ id }: { id: string }) {
         </div>
 
         <aside className="space-y-6 xl:sticky xl:top-[84px] xl:self-start">
+          <Card title={t('workflows.preview')}>
+            <div data-testid="wf-preview">
+              {steps.length === 0 ? (
+                <p className="text-sm text-ink-3">{t('workflows.previewEmpty')}</p>
+              ) : (
+                <RouteStepper orientation="vertical" steps={previewSteps(steps, sim, roleName, locale)} />
+              )}
+            </div>
+          </Card>
           {versionId && <Simulator versionId={versionId} categories={type.data?.lineCategories ?? []} steps={steps} dirty={dirty} sim={sim} onResult={setSim} />}
           {issues.length > 0 && !readOnly && (
             <Banner tone="warning" title={t('workflows.fixIssues', { n: issues.length })}>

@@ -120,6 +120,7 @@ const dict: Dict = {
   'badge.parallel': 'Parallel',
   'parallelGroup': 'Parallel group',
   'preview': 'Route preview',
+  'previewEmpty': 'No steps yet.',
   'sim.result': '{n} of {total} steps apply',
   'noActiveVersion': 'No active version',
   'open': 'Open',
