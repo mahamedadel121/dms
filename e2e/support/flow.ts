@@ -124,3 +124,20 @@ export async function poll<T>(fn: () => Promise<T | undefined | false>, what: st
   }
   throw new Error(`timeout waiting for ${what}${last ? `: ${String(last)}` : ''}`);
 }
+
+/** Drives the simulator through a simple one-line toll request and returns the request number. */
+export async function submitSimpleRequest(code: string, amount = '100'): Promise<string> {
+  const d = new SimDriver(code);
+  await d.reset();
+  await d.text('/start');
+  await d.contact();
+  await d.click('طلب جديد');
+  await d.click('أيوه');
+  await d.text(String(100000 + Math.floor(Math.random() * 50000)));
+  await d.addLine('رسوم طرق', amount);
+  await d.click('كده خلصت');
+  await d.click('تأكيد وإرسال');
+  const m = /DE-\d{2}-\d{6}/.exec(await d.lastText());
+  if (!m) throw new Error(`submit failed: ${await d.lastText()}`);
+  return m[0];
+}

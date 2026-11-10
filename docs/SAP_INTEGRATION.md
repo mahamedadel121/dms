@@ -11,7 +11,7 @@ Status on the build machine: the posting pipeline, the journal entry mapping, th
 
 The SAP monitor (web route `/sap`, API `GET /sap/postings`) lists the postings. Users with `sap.retry` can retry a posting (`POST /sap/postings/:id/retry`).
 
-> **Known issue (found while writing this document, not fixed):** step 2 enqueues `sap.post` with payload `{ requestId }`, but the worker handler (`apps/worker/src/handlers.ts`) reads `payload.postingId` and throws a fatal `VALIDATION` error when it is missing. The tests enqueue `{ postingId }` directly, so they do not catch this. Effect today: the automatic posting does not run after payment, the posting stays `PENDING` in the SAP monitor, and no failure notification is sent (the handler stops before `processSapPosting`). **Workaround:** open the posting in `/sap` and press retry. The retry rewrites the job payload to `{ postingId, trigger: 'MANUAL', userId }` and the worker posts it. **Fix (owner of `packages/core/src/expense/index.ts`):** enqueue `sap.post` with `{ postingId: <the SapPosting id> }`, which is known at that point in `onPaid`.
+> **Fixed (WP8):** step 2 enqueues `sap.post` with `{ postingId, trigger: 'AUTO' }` and dedupe key `sap.post:<requestId>`, matching the worker handler. Covered end-to-end by `e2e/tests/full-flow.spec.ts` (treasury pays, worker posts, status `POSTED` via the mock adapter).
 
 ## 2. Adapters
 
