@@ -18,7 +18,9 @@
     "format": "prettier --write .",
     "e2e": "pnpm --filter @dms/e2e e2e",
     "bot:sim": "pnpm --filter @dms/bot sim",
-    "ci": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci.ps1"
+    "ci": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci.ps1",
+    "load:data": "tsx scripts/load-data.ts",
+    "load:timing": "tsx scripts/load-timing.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
