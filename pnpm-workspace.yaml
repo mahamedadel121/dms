@@ -1,0 +1,14 @@
+packages:
+  - "packages/*"
+  - "apps/*"
+  - "e2e"
+
+allowBuilds:
+  prisma: true
+  "@prisma/client": true
+  "@prisma/engines": true
+  sharp: true
+  "@swc/core": true
+  esbuild: true
+  "@nestjs/core": true
+  "@node-rs/argon2": true

@@ -1,0 +1,19 @@
+{
+  "name": "@dms/bot",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts",
+    "sim": "tsx src/testing/sim.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.0.0",
+    "@dms/core": "workspace:*",
+    "@dms/db": "workspace:*",
+    "@dms/shared": "workspace:*",
+    "grammy": "^1.30.0"
+  }
+}

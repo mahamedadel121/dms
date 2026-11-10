@@ -1,0 +1,35 @@
+{
+  "name": "dms",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.28.4",
+  "scripts": {
+    "db:up": "tsx packages/db/scripts/pg.ts up",
+    "db:down": "tsx packages/db/scripts/pg.ts down",
+    "db:status": "tsx packages/db/scripts/pg.ts status",
+    "db:migrate": "tsx packages/db/scripts/migrate.ts",
+    "db:seed": "pnpm --filter @dms/db seed && pnpm --filter @dms/core seed:demo",
+    "db:generate": "pnpm --filter @dms/db generate",
+    "dev": "tsx scripts/dev.ts",
+    "lint": "eslint .",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "format": "prettier --write .",
+    "e2e": "pnpm --filter @dms/e2e e2e",
+    "bot:sim": "pnpm --filter @dms/bot sim",
+    "ci": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci.ps1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^22.0.0",
+    "concurrently": "^9.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "~5.9.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^3.0.0",
+    "prisma": "^6.0.0",
+    "dotenv": "^16.4.0"
+  }
+}

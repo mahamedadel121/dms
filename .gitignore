@@ -1,0 +1,14 @@
+node_modules/
+.pgdata/
+storage-data/
+.env
+.next*/
+dist/
+coverage/
+*.log
+.wp0a-installed
+.wp0a-db-ready
+.install.lock/
+test-results/
+playwright-report/
+*.tsbuildinfo

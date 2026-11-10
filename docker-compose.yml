@@ -1,0 +1,65 @@
+# Files only: Docker is not available on the build machine and this is never run here (D1).
+x-app: &app
+  build: .
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql://dms:${POSTGRES_PASSWORD:-dms}@postgres:5432/dms
+    API_INTERNAL_URL: http://api:4000
+    STORAGE_ROOT: /data/storage
+  volumes:
+    - storage:/data/storage
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: dms
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dms}
+      POSTGRES_DB: dms
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dms -d dms"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  api:
+    <<: *app
+    build: { context: ., args: { SERVICE: api } }
+    ports: ["4000:4000"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  web:
+    <<: *app
+    build: { context: ., args: { SERVICE: web } }
+    ports: ["3000:3000"]
+    depends_on: [api]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  worker:
+    <<: *app
+    build: { context: ., args: { SERVICE: worker } }
+  bot:
+    <<: *app
+    build: { context: ., args: { SERVICE: bot } }
+    profiles: ["bot"]   # only with BOT_TOKEN set: docker compose --profile bot up
+
+  # Optional, not used in Phase 1 (D4, D5):
+  # redis:
+  #   image: redis:7
+  # minio:
+  #   image: minio/minio
+  #   command: server /data
+
+volumes:
+  pgdata:
+  storage:
