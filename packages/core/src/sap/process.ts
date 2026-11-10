@@ -1,7 +1,9 @@
 import type { Prisma, PrismaClient, SapPosting } from '@prisma/client';
 import { DomainError } from '../errors';
 import { enqueueJob } from '../jobs';
+import { notifyUsers } from '../notifications';
 import { getAdapterByName } from './adapters';
+import { isDefiniteFailure, SapLookupUnavailableError } from './errors';
 import type { JournalEntryDoc } from './types';
 
 export const MAX_AUTO_ATTEMPTS = 8;
@@ -15,7 +17,7 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e)).sli
 export async function processSapPosting(
   prisma: PrismaClient,
   postingId: string,
-  o?: { trigger?: 'AUTO' | 'MANUAL'; userId?: string },
+  o?: { trigger?: 'AUTO' | 'MANUAL'; userId?: string; force?: boolean },
 ): Promise<SapPosting> {
   const trigger = o?.trigger ?? 'AUTO';
 
@@ -25,6 +27,8 @@ export async function processSapPosting(
     if (!locked.length) throw new DomainError('NOT_FOUND', 'SAP posting not found');
     const p = await tx.sapPosting.findUniqueOrThrow({ where: { id: postingId } });
     if (p.status === 'POSTED') return { done: p } as const;
+    const prior = await tx.sapPostingAttempt.findMany({ where: { postingId }, select: { success: true, response: true } });
+    const ambiguous = prior.some((a) => a.success !== true && (a.response as { definiteFailure?: boolean } | null)?.definiteFailure !== true);
     const attemptNo = p.attempts + 1;
     await tx.sapPosting.update({
       where: { id: postingId },
@@ -33,7 +37,7 @@ export async function processSapPosting(
     const attempt = await tx.sapPostingAttempt.create({
       data: { postingId, attemptNo, trigger, triggeredById: o?.userId ?? null },
     });
-    return { posting: p, attemptId: attempt.id, unknownOutcome: p.status === 'POSTING' || p.attempts > 0 } as const;
+    return { posting: p, attemptId: attempt.id, unknownOutcome: p.status === 'POSTING' || ambiguous } as const;
   });
   if ('done' in start && start.done) return start.done;
   const { posting, attemptId, unknownOutcome } = start as Exclude<typeof start, { done: SapPosting }>;
@@ -44,11 +48,17 @@ export async function processSapPosting(
     // 2. earlier attempt may have been accepted without us seeing the answer
     let result: { documentNumber: string; fiscalYear: string; companyCode?: string; raw?: unknown } | null = null;
     let reused = false;
+    let forced = false;
     if (unknownOutcome) {
-      const found = await adapter.findByReference(doc.reference, doc.companyCode);
-      if (found) {
-        result = { ...found, companyCode: doc.companyCode };
-        reused = true;
+      try {
+        const found = await adapter.findByReference(doc.reference, doc.companyCode);
+        if (found) {
+          result = { ...found, companyCode: doc.companyCode };
+          reused = true;
+        }
+      } catch (e) {
+        if (!(e instanceof SapLookupUnavailableError) || o?.force !== true) throw e;
+        forced = true; // an authorised user confirmed in SAP that no document exists
       }
     }
     // 3. post
@@ -76,7 +86,7 @@ export async function processSapPosting(
         data: {
           finishedAt: now,
           success: true,
-          response: { documentNumber: result!.documentNumber, fiscalYear: result!.fiscalYear, reusedExisting: reused } as Prisma.InputJsonValue,
+          response: { documentNumber: result!.documentNumber, fiscalYear: result!.fiscalYear, reusedExisting: reused, forced } as Prisma.InputJsonValue,
         },
       });
       await tx.expenseRequest.updateMany({
@@ -89,7 +99,7 @@ export async function processSapPosting(
           type: 'SAP_POSTED',
           actorType: trigger === 'MANUAL' ? 'USER' : 'SYSTEM',
           actorUserId: o?.userId ?? null,
-          data: { documentNumber: result!.documentNumber, fiscalYear: result!.fiscalYear, adapter: posting.adapter },
+          data: { documentNumber: result!.documentNumber, fiscalYear: result!.fiscalYear, adapter: posting.adapter, forced },
         },
       });
       return updated;
@@ -103,7 +113,10 @@ export async function processSapPosting(
         where: { id: postingId },
         data: { status: 'FAILED', lastError: msg },
       });
-      await tx.sapPostingAttempt.update({ where: { id: attemptId }, data: { finishedAt: now, success: false, error: msg } });
+      await tx.sapPostingAttempt.update({
+        where: { id: attemptId },
+        data: { finishedAt: now, success: false, error: msg, response: { definiteFailure: isDefiniteFailure(e) } as Prisma.InputJsonValue },
+      });
       await tx.requestEvent.create({
         data: {
           requestId: posting.requestId,
@@ -115,7 +128,9 @@ export async function processSapPosting(
         },
       });
     });
-    if (trigger === 'AUTO' && attempts >= MAX_AUTO_ATTEMPTS) await notifySapFailure(prisma, posting, msg).catch(() => undefined);
+    const permanent = e instanceof SapLookupUnavailableError && e.permanent;
+    if (permanent) (e as { fatal?: boolean }).fatal = true;
+    if (permanent || (trigger === 'AUTO' && attempts >= MAX_AUTO_ATTEMPTS)) await notifySapFailure(prisma, posting, msg).catch(() => undefined);
     throw e; // the job retries with backoff; the request stays PAID
   }
 }
@@ -131,33 +146,28 @@ async function notifySapFailure(prisma: PrismaClient, posting: SapPosting, msg: 
     select: { id: true },
   });
   if (!users.length) return;
-  await prisma.notification.createMany({
-    data: users.map((u) => ({
-      channel: 'IN_APP' as const,
-      recipientUserId: u.id,
-      type: 'SAP_FAILED',
-      requestId: posting.requestId,
-      titleAr: 'فشل ترحيل قيد SAP',
-      titleEn: 'SAP posting failed',
-      bodyAr: `فشل ترحيل الطلب ${req?.number ?? ''} إلى SAP بعد ${MAX_AUTO_ATTEMPTS} محاولات. يرجى إعادة المحاولة يدوياً.`,
-      bodyEn: `Posting of ${req?.number ?? ''} to SAP failed after ${MAX_AUTO_ATTEMPTS} attempts. ${msg}`.slice(0, 500),
-      data: { postingId: posting.id },
-      status: 'SENT' as const,
-      sentAt: new Date(),
-    })),
+  await notifyUsers(prisma, {
+    userIds: users.map((u) => u.id),
+    type: 'SAP_FAILED',
+    requestId: posting.requestId,
+    titleAr: 'فشل ترحيل قيد SAP',
+    titleEn: 'SAP posting failed',
+    bodyAr: `فشل ترحيل الطلب ${req?.number ?? ''} إلى SAP بعد ${MAX_AUTO_ATTEMPTS} محاولات. يرجى إعادة المحاولة يدوياً.`,
+    bodyEn: `Posting of ${req?.number ?? ''} to SAP failed after ${MAX_AUTO_ATTEMPTS} attempts. ${msg}`.slice(0, 500),
+    data: { postingId: posting.id },
   });
 }
 
 /**
  * Manual retry: resets the SAME job row (never a second posting row). The next worker run records a MANUAL attempt.
  */
-export async function retrySapPosting(prisma: PrismaClient, postingId: string, userId: string): Promise<SapPosting> {
+export async function retrySapPosting(prisma: PrismaClient, postingId: string, userId: string, o?: { force?: boolean }): Promise<SapPosting> {
   const p = await prisma.sapPosting.findUnique({ where: { id: postingId } });
   if (!p) throw new DomainError('NOT_FOUND', 'SAP posting not found');
   if (p.status === 'POSTED') throw new DomainError('INVALID_STATE', 'Posting is already POSTED');
   if (p.status === 'POSTING') throw new DomainError('INVALID_STATE', 'Posting is in progress');
   const dedupeKey = `sap.post:${p.requestId}`;
-  const payload = { postingId: p.id, trigger: 'MANUAL', userId };
+  const payload = { postingId: p.id, trigger: 'MANUAL', userId, force: o?.force === true };
   const existing = await prisma.job.findUnique({ where: { dedupeKey } });
   if (existing) {
     if (existing.status === 'RUNNING') throw new DomainError('INVALID_STATE', 'Posting job is running');

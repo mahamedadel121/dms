@@ -1,4 +1,6 @@
 import { DomainError } from '../errors';
+import { SapRejectedError } from './errors';
+import { lookupConfigFromEnv, S4Lookup } from './s4lookup';
 import type { JournalEntryDoc, SapPostResult, SapPostingAdapter } from './types';
 
 // SAP S/4HANA journal entry bulk create (SOAP, A2A service JournalEntryBulkCreateRequest_In).
@@ -20,7 +22,7 @@ export function xmlEscape(v: unknown): string {
 
 const sapDate = (d: string) => d; // yyyy-MM-dd as is
 
-export function buildSoapEnvelope(doc: JournalEntryDoc, o: { messageId?: string; now?: Date; createdByUser?: string } = {}): string {
+export function buildSoapEnvelope(doc: JournalEntryDoc, o: { messageId?: string; now?: Date; createdByUser?: string; logicalSystem?: string } = {}): string {
   const now = (o.now ?? new Date()).toISOString();
   const msgId = (o.messageId ?? doc.idempotencyKey).replace(/[^A-Za-z0-9]/g, '').slice(0, 36).padEnd(1, '0');
   const items = doc.items
@@ -55,7 +57,13 @@ export function buildSoapEnvelope(doc: JournalEntryDoc, o: { messageId?: string;
           <CreationDateTime>${xmlEscape(now)}</CreationDateTime>
         </MessageHeader>
         <JournalEntry>
-          <OriginalReferenceDocumentType>BKPFF</OriginalReferenceDocumentType>
+          <OriginalReferenceDocumentType>BKPFF</OriginalReferenceDocumentType>${
+            o.logicalSystem
+              ? `
+          <OriginalReferenceDocument>${xmlEscape(doc.reference)}</OriginalReferenceDocument>
+          <OriginalReferenceDocumentLogicalSystem>${xmlEscape(o.logicalSystem)}</OriginalReferenceDocumentLogicalSystem>`
+              : ''
+          }
           <BusinessTransactionType>RFBU</BusinessTransactionType>
           <AccountingDocumentType>${xmlEscape(doc.documentType)}</AccountingDocumentType>
           <DocumentReferenceID>${xmlEscape(doc.reference)}</DocumentReferenceID>
@@ -71,15 +79,15 @@ export function buildSoapEnvelope(doc: JournalEntryDoc, o: { messageId?: string;
 </soapenv:Envelope>`;
 }
 
-function tag(xml: string, name: string): string | undefined {
+export function tag(xml: string, name: string): string | undefined {
   const m = new RegExp(`<(?:[A-Za-z0-9_]+:)?${name}(?:\\s[^>]*)?>([\\s\\S]*?)</(?:[A-Za-z0-9_]+:)?${name}>`).exec(xml);
   return m ? m[1]!.trim() : undefined;
 }
-function tags(xml: string, name: string): string[] {
+export function tags(xml: string, name: string): string[] {
   const re = new RegExp(`<(?:[A-Za-z0-9_]+:)?${name}(?:\\s[^>]*)?>([\\s\\S]*?)</(?:[A-Za-z0-9_]+:)?${name}>`, 'g');
   return [...xml.matchAll(re)].map((m) => m[1]!.trim());
 }
-const unescapeXml = (s: string) =>
+export const unescapeXml = (s: string) =>
   s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
 
 export type SoapParse =
@@ -111,14 +119,72 @@ export interface S4Config {
   user?: string;
   password?: string;
   client?: string;
+  timeoutMs?: number;
+  logicalSystem?: string;
+  duplicatePattern?: string;
+}
+
+/**
+ * Shared POST + classification for the SOAP adapters (B2). Rejected = definite failure; duplicate -> lookup;
+ * 5xx without confirmation, network error and timeout = unknown outcome (plain DomainError).
+ */
+export async function postAndClassify(
+  o: {
+    url: string;
+    headers: Record<string, string>;
+    body: string;
+    timeoutMs?: number;
+    duplicatePattern?: string;
+    label: string;
+    parse: (xml: string) => SoapParse;
+    lookup: () => S4Lookup;
+    reference: string;
+    companyCode: string;
+  },
+  fetchImpl: typeof fetch,
+): Promise<SapPostResult> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), o.timeoutMs ?? 30000);
+  let res: Response;
+  let text: string;
+  try {
+    res = await fetchImpl(o.url, { method: 'POST', headers: o.headers, body: o.body, signal: ac.signal });
+    text = await res.text();
+  } catch (e) {
+    const reason = ac.signal.aborted ? 'timeout' : e instanceof Error ? e.message : String(e);
+    throw new DomainError('INVALID_STATE', `${o.label} request failed (outcome unknown): ${reason}`);
+  } finally {
+    clearTimeout(timer);
+  }
+  if ([401, 403, 404].includes(res.status)) throw new SapRejectedError(`${o.label} HTTP ${res.status}`);
+  const parsed = o.parse(text);
+  if (!parsed.ok) {
+    if (res.status >= 500 && !/Fault|RETURN|Item/i.test(text)) throw new DomainError('INVALID_STATE', `${o.label} HTTP ${res.status}`);
+    if (o.duplicatePattern && new RegExp(o.duplicatePattern, 'i').test(parsed.error)) {
+      const found = await o.lookup().find(o.reference, o.companyCode);
+      if (found) return { ...found, companyCode: o.companyCode, raw: { reusedAfterDuplicate: true } };
+      throw new DomainError('INVALID_STATE', 'UNKNOWN_OUTCOME: SAP reported a duplicate but the lookup found no document');
+    }
+    throw new SapRejectedError(`${o.label} rejected the posting: ${parsed.error}`);
+  }
+  if (!res.ok) throw new DomainError('INVALID_STATE', `${o.label} HTTP ${res.status}`);
+  return { documentNumber: parsed.documentNumber, fiscalYear: parsed.fiscalYear, companyCode: parsed.companyCode, raw: { http: res.status } };
 }
 
 export class S4HanaSapAdapter implements SapPostingAdapter {
   name = 's4hana';
+  private lookupInst?: S4Lookup;
   constructor(
     private readonly cfg: S4Config,
     private readonly fetchImpl: typeof fetch = fetch,
-  ) {}
+    lookup?: S4Lookup,
+  ) {
+    this.lookupInst = lookup;
+  }
+
+  private get lookup(): S4Lookup {
+    return (this.lookupInst ??= new S4Lookup(lookupConfigFromEnv(), this.fetchImpl));
+  }
 
   private requireConfig(): Required<Pick<S4Config, 'url' | 'user' | 'password'>> & S4Config {
     const { url, user, password } = this.cfg;
@@ -130,23 +196,31 @@ export class S4HanaSapAdapter implements SapPostingAdapter {
 
   async post(doc: JournalEntryDoc): Promise<SapPostResult> {
     const c = this.requireConfig();
-    const body = buildSoapEnvelope(doc);
+    const body = buildSoapEnvelope(doc, { logicalSystem: c.logicalSystem });
     const headers: Record<string, string> = {
       'Content-Type': 'text/xml; charset=utf-8',
       SOAPAction: '""',
       Authorization: `Basic ${Buffer.from(`${c.user}:${c.password}`).toString('base64')}`,
     };
     if (c.client) headers['sap-client'] = c.client;
-    const res = await this.fetchImpl(c.url, { method: 'POST', headers, body });
-    const text = await res.text();
-    const parsed = parseSoapResponse(text);
-    if (!parsed.ok) throw new DomainError('INVALID_STATE', `S/4HANA rejected the posting: ${parsed.error}`);
-    if (!res.ok) throw new DomainError('INVALID_STATE', `S/4HANA HTTP ${res.status}`);
-    return { documentNumber: parsed.documentNumber, fiscalYear: parsed.fiscalYear, companyCode: parsed.companyCode, raw: { http: res.status } };
+    return postAndClassify(
+      {
+        url: c.url,
+        headers,
+        body,
+        timeoutMs: c.timeoutMs,
+        duplicatePattern: c.duplicatePattern,
+        label: 'S/4HANA',
+        parse: parseSoapResponse,
+        lookup: () => this.lookup,
+        reference: doc.reference,
+        companyCode: doc.companyCode,
+      },
+      this.fetchImpl,
+    );
   }
 
-  /** TODO(WP4): query journal entry items by AccountingDocumentHeaderReference (OData API_JOURNALENTRYITEMBASIC). */
-  async findByReference(_reference: string, _companyCode: string): Promise<{ documentNumber: string; fiscalYear: string } | null> {
-    return null;
+  async findByReference(reference: string, companyCode: string): Promise<{ documentNumber: string; fiscalYear: string } | null> {
+    return this.lookup.find(reference, companyCode);
   }
 }

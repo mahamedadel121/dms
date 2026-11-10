@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <urn:BAPI_CASHJOURNALDOC_CREATE.Response xmlns:urn="urn:sap-com:document:sap:rfc:functions">
+      <COMPANY_CODE>1000</COMPANY_CODE>
+      <FISCAL_YEAR>2026</FISCAL_YEAR>
+      <CASH_JOURNAL_DOC_NO>0000004711</CASH_JOURNAL_DOC_NO>
+      <RETURN/>
+    </urn:BAPI_CASHJOURNALDOC_CREATE.Response>
+  </soap:Body>
+</soap:Envelope>

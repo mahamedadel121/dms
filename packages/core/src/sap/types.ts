@@ -16,6 +16,7 @@ export interface JournalEntryDoc {
     assignment: string;
     itemText: string;
   }[];
+  cashJournal?: { number: string; treasuryCode: string; businessTransaction: string };
 }
 
 export interface SapPostResult {
@@ -29,23 +30,4 @@ export interface SapPostingAdapter {
   name: string;
   post(doc: JournalEntryDoc): Promise<SapPostResult>;
   findByReference(reference: string, companyCode: string): Promise<{ documentNumber: string; fiscalYear: string } | null>;
-}
-
-/**
- * Cash Journal (FBCJ) placeholder: posting a payment through a SAP cash journal instead of a
- * general-ledger journal entry. Interface only; no adapter exists yet (see docs/SAP_INTEGRATION.md).
- * TODO(WP4): implement once the SAP team confirms the Cash Journal API and cash-journal numbers.
- */
-export interface CashJournalAdapter {
-  name: string;
-  postCashPayment(p: {
-    companyCode: string;
-    cashJournal: string;
-    reference: string;
-    postingDate: string;
-    glAccount: string;
-    costCenter?: string;
-    amount: string;
-    text: string;
-  }): Promise<{ documentNumber: string; fiscalYear: string }>;
 }

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <n0:JournalEntryBulkCreateConfirmation xmlns:n0="http://sap.com/xi/SAPSCORE/SFIN">
+      <JournalEntryCreateConfirmation>
+        <Log>
+          <MaximumLogItemSeverityCode>3</MaximumLogItemSeverityCode>
+          <Item>
+            <SeverityCode>3</SeverityCode>
+            <Note>Document DE-26-000123 was already posted</Note>
+          </Item>
+        </Log>
+      </JournalEntryCreateConfirmation>
+    </n0:JournalEntryBulkCreateConfirmation>
+  </soap:Body>
+</soap:Envelope>

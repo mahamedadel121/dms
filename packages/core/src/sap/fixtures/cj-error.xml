@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <urn:BAPI_CASHJOURNALDOC_CREATE.Response xmlns:urn="urn:sap-com:document:sap:rfc:functions">
+      <RETURN>
+        <item><TYPE>E</TYPE><MESSAGE>Cash journal 0001 is closed</MESSAGE></item>
+      </RETURN>
+    </urn:BAPI_CASHJOURNALDOC_CREATE.Response>
+  </soap:Body>
+</soap:Envelope>

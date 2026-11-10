@@ -116,8 +116,8 @@ Please provide the following. Items marked (placeholder) are values the code use
 | Where | What |
 |---|---|
 | `packages/core/src/sap/s4hana.ts` (top comment) | Element names, namespaces and the severity mapping are unverified against a real system. |
-| `packages/core/src/sap/s4hana.ts` `findByReference` | Returns `null`. Needs the journal entry query (section 4). |
-| `packages/core/src/sap/types.ts` `CashJournalAdapter` | Interface only, no adapter (checklist item 9). |
+| `packages/core/src/sap/s4lookup.ts` | OData lookup is config-driven and unverified (section 8). |
+| `packages/core/src/sap/cashjournal.ts` | Cash journal adapter, element names unverified (section 9). |
 | `packages/core/src/expense/index.ts` `onPaid` | A fallback that stores a placeholder payload if `buildJournalEntry` throws `NOT_IMPLEMENTED`. It is not reached now, because the function is built; the TODO says to remove it. |
 | `packages/core/src/expense/index.ts` `onPaid` (enqueue) | The known issue in section 1: payload must be `{ postingId }`. |
 | `packages/db/prisma/seed.ts` | GL numbers other than `51501800` and `51501500`, the treasury cash GL `11001000` and company code `1000` are placeholders (OPEN_QUESTIONS Q1). |
@@ -128,3 +128,31 @@ Please provide the following. Items marked (placeholder) are values the code use
 - `packages/core/src/sap/sap.test.ts`: journal balance and mapping, the file adapter (CSV, XLSX, index), the S/4HANA envelope and parser against fixtures (no network), idempotent retry, lost-response recovery with the mock adapter, failure and retry counters.
 - `apps/worker/test/worker.test.ts` and `apps/api/test/integrations/integrations.test.ts`: the `sap.post` job to `DONE`, retry endpoint status codes (201 accepted, 409 when already posted), list filters and permissions.
 - Not covered by any test: the `onPaid` enqueue payload (section 1), any real SAP system.
+
+## 8. Phase 2: idempotency lookup
+
+After an attempt whose outcome is unknown (timeout, 5xx, lost response), a retry first asks SAP whether a document with our reference (the request number) already exists, through a config-driven OData read (`SAP_S4_ODATA_URL`, `SAP_S4_LOOKUP_SERVICE`, `SAP_S4_LOOKUP_ENTITY`, `SAP_S4_LOOKUP_REF_FIELD`; code in `packages/core/src/sap/s4lookup.ts`). Definite rejections (HTTP 401/403/404, SOAP faults, error log items) are stored as `definiteFailure` on the attempt and never trigger a lookup. If the lookup is unavailable (`SAP_S4_LOOKUP_MODE=none`, missing configuration, HTTP 401/403/404) the posting stops with `UNKNOWN_OUTCOME`; a person with `sap.retry` checks FB03 and may press "re-send" with the confirmation box (`force`), which is audited as `sap.posting.force_retry`.
+
+Questions for the SAP team:
+
+1. Is the OData service `API_JOURNALENTRYITEMBASIC_SRV` (entity `A_JournalEntryItemBasic`) activated, and may the communication user read it? If not, which read API returns FI documents by reference (`API_OPLACCTGDOCITEMCUBE_SRV`, a CDS view, a custom service)?
+2. Does `DocumentReferenceID` hold the value we send in the SOAP field `DocumentReferenceID` (XBLNR)? Is it filterable? Case-sensitive?
+3. Base URL of the OData gateway and whether it is OData V2 or V4.
+4. How long after posting is the document visible to this read (is posting synchronous)?
+5. When the same `OriginalReferenceDocument` + logical system is posted twice, does SAP reject it? What exact message text or number is returned (to set `SAP_S4_DUPLICATE_PATTERN`)? Which logical system name should we send (`SAP_S4_LOGICAL_SYSTEM`)?
+6. Should reversed documents count as "already posted"? (Today any document with the reference blocks re-posting.)
+7. Until 1-3 are confirmed, run with `SAP_S4_LOOKUP_MODE=none`: a retry after an unknown outcome then stops with `UNKNOWN_OUTCOME` and needs a person to check FB03 and press "re-send" with the confirmation box.
+
+## 9. Phase 2: cash journal
+
+`SAP_ADAPTER=s4hana-cj` selects `S4CashJournalAdapter` (`packages/core/src/sap/cashjournal.ts`): debit lines become cash journal payment items, the cash GL credit is implied by the cash journal. Cash journal number per treasury and the business transaction come from the `sap.config` setting (`cashJournal` block). All element names are UNVERIFIED.
+
+Questions for the SAP team:
+
+1. Which interface is available: `BAPI_CASHJOURNALDOC_CREATE` exposed as a web service (SOAMANAGER), a Z wrapper, CPI, or none? Endpoint URL?
+2. Does the exposed service commit (`BAPI_TRANSACTION_COMMIT`) in the same call? If not, a Z wrapper `Z_DMS_CASHJOURNAL_POST` that creates, posts and commits is required; give its name and parameters.
+3. Does CREATE only save the cash document, or also post it to FI? If it only saves, which call posts it?
+4. Exact parameter and field names of `HEADER` and `ITEMS` in your release, and the response fields carrying the cash journal document number and the FI document number.
+5. Cash journal number per treasury, and the business transaction (number/name) for expense payments with a G/L account per item.
+6. Is `REF_DOC_NO` copied to the FI document reference (XBLNR), so the lookup finds cash journal postings?
+7. Tax code and other mandatory item fields in your configuration.

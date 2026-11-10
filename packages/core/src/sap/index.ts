@@ -1,7 +1,12 @@
-export type { JournalEntryDoc, SapPostingAdapter, SapPostResult, CashJournalAdapter } from './types';
+export type { JournalEntryDoc, SapPostingAdapter, SapPostResult } from './types';
 export { buildJournalEntry } from './journal';
 export { getSapAdapter, registerSapAdapter } from './adapters';
 export { MockSapAdapter } from './mock';
 export { FileSapAdapter, journalToCsv, journalToXlsx } from './file';
 export { S4HanaSapAdapter, buildSoapEnvelope, parseSoapResponse } from './s4hana';
+export { SapRejectedError, SapLookupUnavailableError, isDefiniteFailure } from './errors';
+export { S4Lookup, buildLookupUrl, parseLookupResponse, lookupConfigFromEnv } from './s4lookup';
+export type { S4LookupConfig } from './s4lookup';
+export { S4CashJournalAdapter, toCashJournalDoc, buildCashJournalEnvelope, parseCashJournalResponse } from './cashjournal';
+export type { CashJournalDoc } from './cashjournal';
 export { processSapPosting, retrySapPosting, MAX_AUTO_ATTEMPTS } from './process';

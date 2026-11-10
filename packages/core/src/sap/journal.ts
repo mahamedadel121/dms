@@ -77,5 +77,10 @@ export async function buildJournalEntry(db: Db, requestId: string): Promise<Jour
     documentDate: cairoDateString(docDate),
     headerText: `${driver} ${req.expense.vehicleNumber}`.trim().slice(0, 25),
     items: [...debits, credit],
+    cashJournal: {
+      number: cfg.cashJournal?.numberByTreasuryCode?.[treasury.code] ?? cfg.cashJournal?.defaultNumber ?? '0001',
+      treasuryCode: treasury.code,
+      businessTransaction: cfg.cashJournal?.businessTransaction ?? '',
+    },
   };
 }

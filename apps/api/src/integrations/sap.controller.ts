@@ -1,7 +1,9 @@
-import { Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req } from '@nestjs/common';
 import type { Prisma, SapPosting, Request as RequestRow } from '@prisma/client';
 import {
   sapPostingsQuerySchema,
+  sapRetryBodySchema,
+  type SapRetryBody,
   type SapPostingDetail,
   type SapPostingList,
   type SapPostingListItem,
@@ -96,9 +98,14 @@ export class SapController {
   /** Resets the same job row; the worker performs the attempt (trigger MANUAL). */
   @RequirePermission('sap.retry')
   @Post(':id/retry')
-  async retry(@Param('id') id: string, @CurrentUser() user: AuthUser, @Req() req: Parameters<typeof actorFromReq>[0]): Promise<SapPostingListItem> {
+  async retry(
+    @Param('id') id: string,
+    @Body(new ZodPipe(sapRetryBodySchema)) b: SapRetryBody,
+    @CurrentUser() user: AuthUser,
+    @Req() req: Parameters<typeof actorFromReq>[0],
+  ): Promise<SapPostingListItem> {
     const before = await this.prisma.sapPosting.findUnique({ where: { id }, select: { status: true } });
-    const p = await retrySapPosting(this.prisma, id, user.id);
+    const p = await retrySapPosting(this.prisma, id, user.id, { force: b.force });
     await audit(this.prisma, {
       actor: actorFromReq({ ...req, user }),
       action: 'sap.retry',
@@ -107,6 +114,16 @@ export class SapController {
       before: { status: before?.status },
       after: { status: p.status },
     });
+    if (b.force) {
+      await audit(this.prisma, {
+        actor: actorFromReq({ ...req, user }),
+        action: 'sap.posting.force_retry',
+        entityType: 'SapPosting',
+        entityId: id,
+        before: { status: before?.status },
+        after: { status: p.status, force: true },
+      });
+    }
     const full = await this.prisma.sapPosting.findUniqueOrThrow({ where: { id }, include: { request: REQ_SELECT } });
     return toItem(full);
   }
