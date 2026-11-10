@@ -61,6 +61,7 @@ export interface Me {
   permissions: string[];
   hasSignature: boolean;
   mustChangePassword: boolean;
+  telegramLinked: boolean;
 }
 export interface AuthResponse {
   accessToken: string;
@@ -432,4 +433,12 @@ export interface VehicleChangeRow {
   decidedAt: string | null;
   decisionComment: string | null;
   createdAt: string;
+}
+
+export interface TelegramLinkDto {
+  /** text to send to the bot, e.g. "/start u_ckx..._lq2m3k_9f2c..." */
+  command: string;
+  /** https://t.me/<BOT_USERNAME>?start=<token>, or null when BOT_USERNAME is not configured */
+  deepLink: string | null;
+  expiresAt: string;
 }

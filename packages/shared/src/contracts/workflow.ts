@@ -314,6 +314,9 @@ export const requestTypeInputSchema = z.object({
 export type RequestTypeInput = z.infer<typeof requestTypeInputSchema>;
 export const requestTypeUpdateSchema = requestTypeInputSchema.partial().omit({ code: true, numberPrefix: true });
 
+export const ATTACHMENT_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'] as const;
+export type AttachmentMimeType = (typeof ATTACHMENT_MIME_TYPES)[number];
+
 export const lineCategoryInputSchema = z.object({
   code: z.string().min(1).max(40),
   nameAr: z.string().min(1),
@@ -329,6 +332,7 @@ export const lineCategoryInputSchema = z.object({
   maxAttachments: z.number().int().min(0).default(10),
   maxAmountWarning: z.string().nullable().optional(),
   approvalRoleIds: z.array(z.string()).default([]),
+  allowedMimeTypes: z.array(z.enum(ATTACHMENT_MIME_TYPES)).min(1).optional(),
 });
 export type LineCategoryInput = z.infer<typeof lineCategoryInputSchema>;
 export const lineCategoryUpdateSchema = lineCategoryInputSchema.partial().omit({ code: true });
@@ -350,8 +354,10 @@ export interface LineCategoryDto {
   maxAttachments: number;
   maxAmountWarning: string | null;
   approvalRoleIds: string[];
+  allowedMimeTypes: string[];
 }
 export interface RequestTypeDto {
+  stats?: RequestTypeStatsDto;
   id: string;
   code: string;
   nameAr: string;
@@ -459,3 +465,69 @@ export interface TemplateDto {
 }
 export type SendBackBody = z.infer<typeof sendBackBodySchema>;
 export type RejectBody = z.infer<typeof rejectBodySchema>;
+
+// ---------------------------------------------------------------- phase 2 additions
+export const lineCategoryOrderSchema = z.object({ ids: z.array(z.string().min(1)).min(1) });
+export type LineCategoryOrderBody = z.infer<typeof lineCategoryOrderSchema>;
+
+export const TEMPLATE_LAYOUT_KEYS = ['expense-sheet', 'generic-request'] as const;
+export type TemplateLayoutKey = (typeof TEMPLATE_LAYOUT_KEYS)[number];
+
+export const templateCreateSchema = z.object({
+  requestTypeId: z.string().min(1),
+  code: z.string().min(1).max(40).regex(/^[A-Z0-9_]+$/),
+  nameAr: z.string().trim().min(1),
+  nameEn: z.string().trim().min(1),
+  layoutKey: z.enum(TEMPLATE_LAYOUT_KEYS).default('generic-request'),
+  isDefault: z.boolean().default(false),
+  /** copy the config of this template's ACTIVE (else latest) version into the new v1 draft */
+  copyFromTemplateId: z.string().min(1).optional(),
+});
+export type TemplateCreateBody = z.infer<typeof templateCreateSchema>;
+
+export const templateUpdateSchema = z
+  .object({ nameAr: z.string().trim().min(1), nameEn: z.string().trim().min(1), isDefault: z.boolean(), isActive: z.boolean() })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to update' });
+export type TemplateUpdateBody = z.infer<typeof templateUpdateSchema>;
+
+export interface RequestTypeStatsDto {
+  categoryCount: number;
+  requestCount: number;
+  templateCount: number;
+  activeWorkflowVersion: number | null;
+}
+export interface RequestModuleDto {
+  key: string;
+}
+
+export const EXPENSE_RESERVED_HEADER_KEYS = ['vehicleId', 'vehicleNumber', 'odometer', 'odometerWarning'] as const;
+
+export interface FieldIssue {
+  index: number;
+  key: string;
+  code: 'KEY_FORMAT' | 'KEY_DUPLICATE' | 'KEY_RESERVED' | 'OPTIONS_REQUIRED' | 'LOOKUP_REQUIRED' | 'MIN_GT_MAX' | 'REGEX_INVALID';
+}
+/** Structural checks shared by the API and the web editor. Keys: /^[a-z][A-Za-z0-9_]*$/, unique, not reserved. */
+export function fieldDefinitionIssues(fields: FieldDefinition[], reservedKeys: readonly string[] = []): FieldIssue[] {
+  const out: FieldIssue[] = [];
+  const seen = new Set<string>();
+  fields.forEach((f, index) => {
+    const push = (code: FieldIssue['code']) => out.push({ index, key: f.key, code });
+    if (!/^[a-z][A-Za-z0-9_]*$/.test(f.key)) push('KEY_FORMAT');
+    if (seen.has(f.key)) push('KEY_DUPLICATE');
+    seen.add(f.key);
+    if (reservedKeys.includes(f.key)) push('KEY_RESERVED');
+    if (f.type === 'select' && !(f.options && f.options.length > 0)) push('OPTIONS_REQUIRED');
+    if (f.type === 'lookup' && !f.lookup) push('LOOKUP_REQUIRED');
+    if (f.min !== undefined && f.max !== undefined && f.min > f.max) push('MIN_GT_MAX');
+    if (f.regex) {
+      try {
+        new RegExp(f.regex);
+      } catch {
+        push('REGEX_INVALID');
+      }
+    }
+  });
+  return out;
+}

@@ -84,3 +84,6 @@ export interface SapPostingDetail extends SapPostingListItem {
 
 /** POST /sap/postings/:id/retry -> the refreshed posting (status PENDING until the worker runs it) */
 export type SapRetryResponse = SapPostingListItem;
+
+export const sapRetryBodySchema = z.object({ force: z.boolean().optional() }).default({});
+export type SapRetryBody = z.infer<typeof sapRetryBodySchema>;

@@ -794,6 +794,7 @@ model Attachment {
   duplicatedBy          AttachmentDuplicate[] @relation("DupTarget")
 
   @@index([requestId])
+  @@index([requestId, isCurrent])
   @@index([lineId, isCurrent])
   @@index([botSessionId])
   @@index([sha256])
@@ -871,6 +872,7 @@ model RequestStepInstance {
 
   @@unique([requestId, stepKey])
   @@index([status, roleId]) // role queues
+  @@index([roleId, status, activatedAt])
   @@index([requestId, stageIndex])
   @@index([status, dueAt]) // SLA scan
   @@index([actedById])
