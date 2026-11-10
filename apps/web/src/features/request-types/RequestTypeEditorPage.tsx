@@ -149,7 +149,7 @@ export function RequestTypeEditorPage({ id }: { id?: string }) {
     save.mutate();
   }
 
-  if (!canManage) return <Page testId="page-request-type-editor"><ErrorBlock message={t('auth.forbiddenPage')} /></Page>;
+  if (!canManage) return <Page testId="page-request-type-editor"><ErrorBlock message={t('common.auth.forbiddenPage')} /></Page>;
 
   const tabs: { key: TabKey; label: string; dirty?: boolean }[] =
     mode === 'create'

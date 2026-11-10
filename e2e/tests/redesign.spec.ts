@@ -86,7 +86,7 @@ test.describe('desktop', () => {
     await page.getByTestId('rt-cat-save').click();
     await expect(page.getByTestId('rt-cat-row').first()).toBeVisible({ timeout: 15000 });
     await openPage(page, '/admin/request-types', 'page-admin-request-types');
-    await expect(page.locator(`[data-testid="rt-row"][data-code="${code}"]`)).toBeVisible();
+    await expect(page.locator(`[data-testid="rt-row"][data-row-key="${code}"]`)).toBeVisible();
   });
 
   test('template: create from the dialog and open the editor', async ({ page }) => {

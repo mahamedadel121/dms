@@ -81,7 +81,7 @@ export function InboxPage() {
       header: t('requests.col.driver'),
       cell: (it) => (
         <span className="flex h-[60px] items-center gap-2">
-          <Avatar name={it.submitterName} size={24} />
+          <Avatar name={it.submitterName ?? ""} size={24} />
           <span className="flex flex-col">
             <span className="text-sm">{it.submitterName}</span>
             {!!it.summary?.vehicleNumber && <Code className="text-xs text-ink-3">{String(it.summary.vehicleNumber)}</Code>}
@@ -241,7 +241,7 @@ function Waiting({ item, now }: { item: QueueItem; now: number }) {
 
 function Flags({ item, max }: { item: QueueItem; max?: number }) {
   const { t } = useTr();
-  const chips: JSX.Element[] = [];
+  const chips: React.JSX.Element[] = [];
   if (item.step.overdue) {
     chips.push(
       <Badge key="overdue" tone="red" icon={<Icon as={AlertTriangle} size={14} />}>

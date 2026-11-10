@@ -194,6 +194,7 @@ export function SearchInput({
   debounceMs = 300,
   className,
   ltr,
+  testId,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -201,6 +202,7 @@ export function SearchInput({
   debounceMs?: number;
   className?: string;
   ltr?: boolean;
+  testId?: string;
 }) {
   const { t } = useT();
   const [local, setLocal] = useState(value);
@@ -223,6 +225,7 @@ export function SearchInput({
       <Search size={16} strokeWidth={1.5} className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-ink-3" aria-hidden />
       <input
         type="search"
+        data-testid={testId}
         value={local}
         dir={ltr ? 'ltr' : undefined}
         placeholder={placeholder ?? t('common.searchPlaceholder')}

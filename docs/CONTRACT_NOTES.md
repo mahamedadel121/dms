@@ -37,3 +37,4 @@ P2-F3, apps/api/src/platform/auth.service.ts: Me now requires telegramLinked: bo
 P2-W7, apps/web/src/components/ui/Fields.tsx: SearchInput does not forward data-testid; CrudPage wraps it in a div[data-testid="crud-search"] (e2e should target the input inside).
 P2-W3, features/requests/timelineModel.ts: DESIGN_SPEC names event type REQ_AT_STEP but the real arrival event is STEP_ACTIVATED; collapseEvents treats both as arrival.
 P2-W9, apps/web/src/components/ui/DataTable.tsx: rows expose data-row-key only; rt list uses rowKey=code so e2e can select [data-row-key=CODE] (spec asked data-code)
+P2-Z resolved: P2-F3 (A1 returns telegramLinked, typecheck clean); P2-W7 SearchInput now forwards `testId` to the input (crud-search, requests-search, matrix-search); P2-W3 STEP_ACTIVATED kept as the arrival event (collapseEvents accepts both); P2-W9 e2e now selects `[data-row-key=CODE]` (data-row-key is the DESIGN_SPEC convention).

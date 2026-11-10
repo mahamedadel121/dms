@@ -48,7 +48,7 @@ export function RequestsListPage() {
       header: t('requests.col.driver'),
       cell: (r) => (
         <span className="inline-flex items-center gap-2">
-          <Avatar name={r.submitterName} size={24} />
+          <Avatar name={r.submitterName ?? ""} size={24} />
           <span>{r.submitterName}</span>
         </span>
       ),
@@ -70,7 +70,7 @@ export function RequestsListPage() {
           setF(EMPTY);
           setPage(1);
         }}
-        search={<SearchInput ltr value={f.number} onChange={(v) => set('number', v)} placeholder={t('inbox.searchNumber')} />}
+        search={<SearchInput ltr testId="requests-search" value={f.number} onChange={(v) => set('number', v)} placeholder={t('inbox.searchNumber')} />}
       >
         <FormField label={t('requests.col.status')} className="w-44">
           {(id) => (

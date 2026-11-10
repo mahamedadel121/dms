@@ -54,6 +54,41 @@ E2E = `e2e/tests/full-flow.spec.ts` (driver simulator + REST + worker, real stac
 - Signed file URLs: a tampered signature and an expired timestamp both give 403. A valid signed URL works without a token (that is what "signed URL" means; keep expiry short).
 - No MUST issues found. SHOULD: add rate limiting to file URLs; `/metrics` should require auth before it carries real data.
 
+
+## Phase 2 (implemented 2026-11, tests written, NOT yet run)
+
+Only `tsc --noEmit` and `eslint` were run (both clean at the integration commit; lint has 15 `no-explicit-any` warnings). Vitest, Playwright, `next build` and every server are unverified; follow `docs/plan-v2/TESTING_GUIDE.md`.
+
+### Section A: Majlis redesign (spec `docs/plan-v2/DESIGN_SPEC.md`)
+| Item | Status | Proven by |
+|---|---|---|
+| Tokens, prefs, formatters, kit primitives, overlays, DataTable, DateField, FilterBar (F1, F2) | Done | `apps/web/src/lib/*.test.ts`, `features/style-guard.test.ts`, `features/i18n-keys.test.ts` |
+| App shell, login, profile, notifications (W1) | Done | `e2e/tests/redesign.spec.ts`, `web-ui.spec.ts` |
+| Inbox, requests list, vehicle changes, assignments (W2) | Done | `features/inbox` tests, e2e |
+| Request detail, route stepper, line cards, timeline (W3) | Done | `features/requests/timelineModel.test.ts`, e2e |
+| Action bar, dialogs, evidence viewer (W4) | Done | `features/requests` tests, e2e |
+| Dashboard, charts, reports, SAP monitor (W5) | Done | `features/dashboard`, `features/sap` tests |
+| Workflow editor, template editor and lists (W6) | Done | `features/workflows`, `features/templates` tests |
+| CrudPage, import dialog, master pages (W7) | Done | `components/crud` tests, e2e |
+| Admin: users, roles matrix, delegations, audit, settings, signatures (W8) | Done | `features/admin/*.test.ts` |
+| Request types UI (W9) | Done | `features/request-types` tests, e2e |
+| Cut (PLAN_V2 section 10): C1 command palette, C2 workflow route preview card, C3 audit diff viewer (raw JSON shown; `features/admin/diff.ts` exists unused), C4 roles matrix mobile accordion, C5 density and Arabic-Indic numerals toggle UI (formatter support stays; the numerals e2e test was dropped) | Not built | follow-up run |
+
+### Section B: functional gaps
+| Item | Status | Proven by |
+|---|---|---|
+| B1 request types and templates API (A1) | Done | `apps/api/test/workflow/request-types.test.ts`, `templates.test.ts` |
+| B2 S/4HANA `findByReference` and force retry (A2) | Done, fixtures only | `packages/core/src/sap` tests, worker test |
+| B3 Cash Journal adapter `s4hana-cj` (A2) | Done, fixtures only | `packages/core/src/sap` tests |
+| B4 S3 storage driver and presigned redirect (A3) | Done | `packages/core/src/storage/s3.test.ts` |
+| B5 Prometheus `/metrics` (A3) | Done | API metrics test |
+| B6 e-mail transport, templates, fan-out (A4) | Done, off by default | core notification tests, worker test |
+| B7 Telegram link/relink (A1, A5) | Done | `apps/api/test/platform/telegram-link.test.ts`, `packages/core/src/telegram/telegram.test.ts`, bot tests |
+| B8 load tooling and perf indexes (A6, F3) | Done, not run | `pnpm load:data`, `pnpm load:timing` |
+| B9 `scripts/demo.ts` fix (H1) | Done, not run | `pnpm demo` |
+
+Integration notes: the timeline arrival event is `STEP_ACTIVATED` (the spec said `REQ_AT_STEP`; the model treats both as arrival); `/metrics` answers `UNAUTHENTICATED` without the token; build info reads the root `package.json` version.
+
 ## For the project owner
 
 ### Complete and verified (on this machine)
@@ -64,19 +99,18 @@ E2E = `e2e/tests/full-flow.spec.ts` (driver simulator + REST + worker, real stac
 ### Implemented but cannot work yet, and why
 - **Telegram bot**: no bot token. Polling and webhook code exist; only the simulator (http://127.0.0.1:3010, same bot code and DB) was exercised.
 - **Webhook mode**: needs a public HTTPS URL.
-- **SAP**: no endpoint or credentials; only the mock and file adapters run. The S/4HANA SOAP element names are unverified. **Risk:** the S/4HANA adapter's `findByReference` returns null, so with the real adapter a retry after a lost response could post twice. Idempotency is guaranteed only for mock/file until the SAP team confirms a lookup (for example by XBLNR).
-- **S3/MinIO storage**: stub, local disk only. **Email**: stub.
+- **SAP**: no endpoint or credentials; only the mock and file adapters run. The S/4HANA SOAP element names are unverified. Phase 2 added `findByReference` (OData lookup, `SAP_S4_LOOKUP_MODE`), tested with fixtures only; the SAP team must confirm service and field names.
+- **S3/MinIO storage** and **e-mail (SMTP)**: implemented in phase 2, never run against a real bucket or mail server.
 - **Docker files**: written, never executed.
 - **PostgreSQL**: the system Postgres password is unknown, so a private cluster on port 54329 (`.pgdata`) is used; `pnpm db:up` starts it.
 
 ### Known bugs and limitations
-- No UI to create or edit Request Types or to create a new template (API only). Needs a simple `/admin/request-types` screen.
 - Final-PDF text was verified from the document model (Arabic title, signature blocks) and the file header; the binary PDF text was not extracted (no PDF text tool here).
 - The API returns some money totals without decimals (for example `"2090"`); the web formats them. Line amounts are `"100.00"`.
 - `pnpm demo` serves a production web build (`next start`); after changing web code run `pnpm demo --rebuild`. `next build` rewrites `apps/web/tsconfig.json` and `next-env.d.ts`; revert them before committing.
 - The mock SAP ledger is per process (seeded failure is a stored FAILED row; press retry in `/sap`).
 - Odometer sanity warnings in the bot appear when a reading differs a lot from the last one; the driver must confirm.
-- Load test (`scripts/load-data.ts`, 50k requests) was **skipped** for time; query performance at scale is unmeasured.
+- Load tooling now exists (`pnpm load:data`, `pnpm load:timing`) but has not been run; query performance at scale is unmeasured until the developer runs it.
 - The queue shows a request twice when two parallel active steps are both yours.
 
 ### Go-live steps

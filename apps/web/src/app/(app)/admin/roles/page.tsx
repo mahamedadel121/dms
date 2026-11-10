@@ -161,7 +161,7 @@ export default function RolesPage() {
       {canManage && tab === 'matrix' && matrix.data && (
         <div className="space-y-3">
           <div className="max-w-sm">
-            <SearchInput value={search} onChange={setSearch} placeholder={t('admin.matrix.search')} />
+            <SearchInput testId="matrix-search" value={search} onChange={setSearch} placeholder={t('admin.matrix.search')} />
           </div>
           <div data-testid="matrix" className="max-h-[calc(100dvh-220px)] overflow-auto rounded-lg border border-hairline bg-surface">
             <table className="min-w-full border-separate border-spacing-0 text-sm">

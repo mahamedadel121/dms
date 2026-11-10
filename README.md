@@ -69,6 +69,12 @@ Check the database with `pnpm db:status`. Stop it with `pnpm db:down`.
 | `SAP_ADAPTER` | `mock` | `mock`, `file` or `s4hana` (see below) |
 | `PDF_BROWSER_CHANNEL` | empty | Empty = bundled Chromium; or `msedge` / `chrome` |
 | `LOG_LEVEL` | `info` | |
+| `SAP_S4_LOOKUP_MODE` | `odata` | `odata` or `none` (safe mode): duplicate check before re-posting |
+| `SAP_S4_ODATA_URL`, `SAP_S4_CJ_URL` | empty | S/4HANA lookup and Cash Journal endpoints (`SAP_ADAPTER=s4hana` or `s4hana-cj`) |
+| `STORAGE_DRIVER`, `S3_*` | `local` | `s3` needs `S3_BUCKET` (plus endpoint and keys); `S3_PRESIGNED_REDIRECT=true` redirects downloads |
+| `EMAIL_DRIVER`, `SMTP_*` | `none` | `none`, `smtp` (needs `SMTP_HOST`) or `file` |
+| `METRICS_TOKEN` | empty | Bearer token for `GET /metrics` (Prometheus) |
+| `BOT_USERNAME`, `TELEGRAM_LINK_TTL_SEC` | empty / `900` | Telegram link command and its validity |
 
 ## Run
 
@@ -126,6 +132,10 @@ Open **http://127.0.0.1:3010**. The page is a phone-style chat that talks to the
 - `إعادة ضبط` (reset) unlinks the simulated account so onboarding can be replayed. `تجربة انتحال` (impersonation) shares someone else's contact to show the refusal.
 - The port is 3010 by default. Override it with `BOT_SIMULATOR_PORT`. The page listens on 127.0.0.1 only.
 
+## Phase 2 redesign
+
+The web app was redesigned in one direction, "Majlis": ivory paper, navy ink, brass rule, Naskh display type and an approval seal, with light and dark themes, Arabic RTL first, English, desktop and mobile. Phase 2 also added request-type and template management screens, S/4HANA duplicate lookup and a Cash Journal adapter, an S3 storage driver, Prometheus `/metrics`, SMTP e-mail, Telegram link/relink and load tooling. It was implemented without running any test: follow `docs/plan-v2/TESTING_GUIDE.md` for the first run.
+
 ## Tests and CI
 
 ```powershell
@@ -134,6 +144,8 @@ pnpm lint          # ESLint
 pnpm typecheck     # tsc in every package
 pnpm ci            # local CI: db:up, db:migrate, lint, typecheck, test (scripts/ci.ps1)
 pnpm e2e           # Playwright browser test (starts the API and the web app itself)
+pnpm load:data     # synthetic large data set (see docs/plan-v2/TESTING_GUIDE.md)
+pnpm load:timing   # time the key queries on that data set
 ```
 
 Run one package's tests with `pnpm --filter <package> exec vitest run <path>`, for example `pnpm --filter @dms/bot exec vitest run`.
@@ -203,8 +215,8 @@ Each backup is a `pg_dump` file plus an archive of `storage-data/`. Schedules, t
 - **Not tested or not built:**
   - real Telegram (no token), and webhook mode in a live setting;
   - S/4HANA posting (no SAP system or credentials; element names unverified);
-  - Cash Journal (FBCJ) posting (interface only);
+  - Cash Journal (FBCJ) posting (adapter written against fixtures only);
   - web submission of requests (the API exists; there is no submission screen);
-  - e-mail notifications (stub) and S3 storage (stub);
+  - e-mail notifications and S3 storage (implemented in phase 2, never run against real servers);
   - Docker files and reverse-proxy files (never run).
 - **Placeholders in the seed:** most GL account numbers, the treasury cash account and the SAP company code are placeholders until the SAP team confirms them (see `docs/SAP_INTEGRATION.md`).

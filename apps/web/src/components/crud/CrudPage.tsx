@@ -251,8 +251,8 @@ export function CrudPage<T extends { id: string; isActive?: boolean }>(cfg: Crud
         activeCount={activeCount}
         onReset={reset}
         search={
-          <div data-testid="crud-search">
           <SearchInput
+            testId="crud-search"
             value={search}
             placeholder={cfg.searchPlaceholder ?? t('common.searchPlaceholder')}
             onChange={(v) => {
@@ -260,7 +260,6 @@ export function CrudPage<T extends { id: string; isActive?: boolean }>(cfg: Crud
               setSearch(v.trim());
             }}
           />
-          </div>
         }
       >
         {cfg.filters?.map((f) => (

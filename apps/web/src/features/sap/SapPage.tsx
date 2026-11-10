@@ -162,7 +162,7 @@ export function SapPage() {
           setF(EMPTY);
           setPage(1);
         }}
-        search={<SearchInput value={f.number} onChange={(v) => set('number', v)} placeholder={t('sap.searchNumber')} ltr />}
+        search={<SearchInput value={f.number} onChange={(v) => set('number', v)} placeholder={t('inbox.searchNumber')} ltr />}
       >
         <FormField label={t('sap.col.status')}>
           {(id) => <Select id={id} value={f.status} onChange={(v) => set('status', v)} placeholder={t('requests.filter.any')} options={SAP_POSTING_STATUSES.map((s) => ({ value: s, label: t(`sap.status.${s}`) }))} />}
