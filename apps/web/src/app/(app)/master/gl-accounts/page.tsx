@@ -1,6 +1,7 @@
 'use client';
 
 import { useT } from '@/lib/i18n';
+import { Code } from '@/components/ui';
 import { CrudPage } from '@/components/crud/CrudPage';
 
 interface Row {
@@ -24,7 +25,7 @@ export default function GlAccountsPage() {
         { key: 'nameEn', label: t('common.nameEn'), type: 'text', required: true, ltr: true },
       ]}
       columns={[
-        { key: 'number', header: t('master.glAccounts.number'), sortable: true, primary: true, cell: (r) => <bdi>{r.number}</bdi> },
+        { key: 'number', header: t('master.glAccounts.number'), sortable: true, primary: true, cell: (r) => <Code>{r.number}</Code> },
         { key: 'nameAr', header: t('common.nameAr'), sortable: true },
         { key: 'nameEn', header: t('common.nameEn'), sortable: true },
       ]}

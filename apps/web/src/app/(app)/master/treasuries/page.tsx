@@ -2,6 +2,7 @@
 
 import { useT } from '@/lib/i18n';
 import { Badge } from '@/components/ui';
+import { Code } from '@/components/ui';
 import { CrudPage } from '@/components/crud/CrudPage';
 
 interface Row {
@@ -30,7 +31,7 @@ export default function TreasuriesPage() {
         { key: 'isDefault', label: t('master.treasuries.isDefault'), type: 'checkbox' },
       ]}
       columns={[
-        { key: 'code', header: t('common.code'), sortable: true, cell: (r) => <bdi>{r.code}</bdi> },
+        { key: 'code', header: t('common.code'), sortable: true, cell: (r) => <Code>{r.code}</Code> },
         {
           key: 'name',
           header: t('common.name'),
@@ -43,8 +44,8 @@ export default function TreasuriesPage() {
             </span>
           ),
         },
-        { key: 'cashGlNumber', header: t('master.treasuries.cashGl'), cell: (r) => <bdi>{r.cashGlNumber}</bdi> },
-        { key: 'companyCode', header: t('master.treasuries.companyCode'), cell: (r) => <bdi>{r.companyCode}</bdi> },
+        { key: 'cashGlNumber', header: t('master.treasuries.cashGl'), cell: (r) => <Code>{r.cashGlNumber}</Code> },
+        { key: 'companyCode', header: t('master.treasuries.companyCode'), cell: (r) => <Code>{r.companyCode}</Code> },
       ]}
     />
   );

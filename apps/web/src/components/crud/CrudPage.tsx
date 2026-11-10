@@ -2,14 +2,15 @@
 
 import { useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, Pencil, Plus, Power, PowerOff, Search, Upload } from 'lucide-react';
+import { Download, MoreHorizontal, Pencil, Plus, Upload } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useT } from '@/lib/i18n';
+import { useIsDesktop } from '@/lib/useMediaQuery';
 import type { Paged } from '@/lib/types';
 import {
-  ActiveBadge, Button, Card, Checkbox, ConfirmDialog, DataTable, ErrorBlock, FileDrop, FormField, Input, LookupSelect, Modal, PageHeader,
-  Select, Textarea, fieldErrorsFromApi, requiredErrors, useToast, type Column, type SelectOption,
+  ActiveBadge, Button, Checkbox, ConfirmDialog, DataTable, ErrorBlock, FileDrop, FilterBar, FormField, Icon, IconButton, Input, LookupSelect, Menu,
+  Modal, Page, PageHeader, SearchInput, Select, Switch, Textarea, fieldErrorsFromApi, requiredErrors, useToast, type Column, type SelectOption,
 } from '@/components/ui';
 import { ImportDialog } from './ImportDialog';
 
@@ -73,6 +74,10 @@ export interface CrudConfig<T extends { id: string; isActive?: boolean }> {
   managePermission?: string;
   searchPlaceholder?: string;
   pageSize?: number;
+  /** card layout of a row on mobile (use when the list has more than four columns) */
+  mobileCard?: (row: T) => ReactNode;
+  /** page test id suffix: `page-<testId>` (default: the resource) */
+  testId?: string;
 }
 
 function defaultToForm<T>(row: T, fields: CrudField[]): Values {
@@ -101,12 +106,12 @@ export function CrudPage<T extends { id: string; isActive?: boolean }>(cfg: Crud
   const { t } = useT();
   const { can } = useAuth();
   const toast = useToast();
+  const desktop = useIsDesktop();
   const qc = useQueryClient();
   const canManage = can(cfg.managePermission ?? 'masterdata.manage');
   const pageSize = cfg.pageSize ?? 25;
 
   const [page, setPage] = useState(1);
-  const [q, setQ] = useState('');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('');
   const [active, setActive] = useState('');
@@ -171,135 +176,175 @@ export function CrudPage<T extends { id: string; isActive?: boolean }>(cfg: Crud
 
   const columns: Column<T>[] = [
     ...cfg.columns,
-    { key: 'isActive', header: t('common.status'), cell: (r) => <ActiveBadge active={r.isActive !== false} />, hideOnMobile: false },
+    {
+      key: 'isActive',
+      header: t('common.status'),
+      hideOnMobile: false,
+      cell: (r) =>
+        canManage && !cfg.noDeactivate ? (
+          <Switch
+            id={'crud-toggle-' + r.id}
+            checked={r.isActive !== false}
+            label={<span className="sr-only">{t('common.status')}</span>}
+            onChange={(on) => (on ? flip.mutate(r) : setToggle(r))}
+          />
+        ) : (
+          <ActiveBadge active={r.isActive !== false} />
+        ),
+    },
   ];
 
   const formFields = cfg.fields.filter((f) => !(editing?.mode === 'edit' && f.createOnly));
 
+  const doExport = () => {
+    api.download(`/${cfg.resource}/export.xlsx`, undefined, `${cfg.resource}.xlsx`).catch((e) => toast.error(e));
+  };
+  const showImport = canManage && !cfg.noImport;
+
+  const menuItems = [
+    { key: 'import', label: t('common.import'), icon: <Icon as={Upload} size={16} />, testId: 'crud-import', hidden: !showImport, onSelect: () => setImporting(true) },
+    { key: 'export', label: t('common.export'), icon: <Icon as={Download} size={16} />, testId: 'crud-export', hidden: !!cfg.noExport, onSelect: doExport },
+  ];
+
+  const activeCount = (active ? 1 : 0) + (search ? 1 : 0) + Object.values(extra).filter(Boolean).length;
+  const reset = () => {
+    setPage(1);
+    setSearch('');
+    setActive('');
+    setExtra({});
+  };
+
   return (
-    <>
+    <Page testId={`page-${cfg.testId ?? cfg.resource}`}>
       <PageHeader
         title={cfg.title}
         subtitle={cfg.subtitle}
         actions={
           <>
             {cfg.headerActions}
-            {!cfg.noExport && (
-              <Button variant="secondary" icon={<Download className="h-4 w-4" />} onClick={() => api.download(`/${cfg.resource}/export.xlsx`, undefined, `${cfg.resource}.xlsx`).catch((e) => toast.error(e))}>
-                {t('common.export')}
-              </Button>
-            )}
-            {canManage && !cfg.noImport && (
-              <Button variant="secondary" icon={<Upload className="h-4 w-4" />} onClick={() => setImporting(true)}>
-                {t('common.import')}
-              </Button>
+            {desktop ? (
+              <>
+                {showImport && (
+                  <Button variant="secondary" icon={<Icon as={Upload} size={16} />} data-testid="crud-import" onClick={() => setImporting(true)}>
+                    {t('common.import')}
+                  </Button>
+                )}
+                {!cfg.noExport && (
+                  <Button variant="secondary" icon={<Icon as={Download} size={16} />} data-testid="crud-export" onClick={doExport}>
+                    {t('common.export')}
+                  </Button>
+                )}
+              </>
+            ) : (
+              <Menu align="end" items={menuItems} trigger={<IconButton variant="secondary" icon={<Icon as={MoreHorizontal} size={18} />} label={t('ui.more')} />} />
             )}
             {canManage && (
-              <Button icon={<Plus className="h-4 w-4" />} onClick={() => open('create')}>
+              <Button icon={<Icon as={Plus} size={16} />} data-testid="crud-add" onClick={() => open('create')}>
                 {t('common.create')}
               </Button>
             )}
           </>
         }
       />
-      <Card padded={false}>
-        <form
-          className="flex flex-wrap items-end gap-2 border-b border-slate-100 p-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setPage(1);
-            setSearch(q.trim());
-          }}
-        >
-          <div className="min-w-48 flex-1">
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={cfg.searchPlaceholder ?? t('common.searchPlaceholder')} />
-          </div>
-          {cfg.filters?.map((f) => (
-            <Select
-              key={f.key}
-              aria-label={f.label}
-              className="w-44"
-              value={extra[f.key] ?? ''}
-              placeholder={f.label}
-              options={f.options}
-              onChange={(v) => {
-                setPage(1);
-                setExtra((s) => ({ ...s, [f.key]: v }));
-              }}
-            />
-          ))}
-          <Select
-            aria-label={t('common.status')}
-            className="w-36"
-            value={active}
-            placeholder={t('common.status')}
-            options={[
-              { value: '1', label: t('common.active') },
-              { value: '0', label: t('common.inactive') },
-            ]}
+
+      <FilterBar
+        activeCount={activeCount}
+        onReset={reset}
+        search={
+          <div data-testid="crud-search">
+          <SearchInput
+            value={search}
+            placeholder={cfg.searchPlaceholder ?? t('common.searchPlaceholder')}
             onChange={(v) => {
               setPage(1);
-              setActive(v);
+              setSearch(v.trim());
             }}
           />
-          <Button type="submit" variant="secondary" icon={<Search className="h-4 w-4" />}>
-            {t('common.search')}
-          </Button>
-        </form>
-        {list.error ? (
-          <div className="p-4">
-            <ErrorBlock message={errorMessage(list.error)} />
           </div>
-        ) : (
-          <DataTable
-            columns={columns}
-            rows={list.data?.items}
-            rowKey={(r) => r.id}
-            loading={list.isFetching}
-            page={page}
-            pageSize={pageSize}
-            total={list.data?.total ?? 0}
-            onPageChange={setPage}
-            sort={sort}
-            onSortChange={setSort}
-            rowActions={
-              canManage
-                ? (row) => (
-                    <>
-                      {cfg.rowActions?.(row, () => void reload())}
-                      <Button size="sm" variant="ghost" icon={<Pencil className="h-4 w-4" />} onClick={() => open('edit', row)} aria-label={t('common.edit')} title={t('common.edit')} />
-                      {!cfg.noDeactivate && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          icon={row.isActive === false ? <Power className="h-4 w-4" /> : <PowerOff className="h-4 w-4" />}
-                          onClick={() => setToggle(row)}
-                          aria-label={row.isActive === false ? t('common.activate') : t('common.deactivate')}
-                          title={row.isActive === false ? t('common.activate') : t('common.deactivate')}
-                        />
-                      )}
-                    </>
-                  )
-                : cfg.rowActions
-                  ? (row) => cfg.rowActions!(row, () => void reload())
-                  : undefined
-            }
+        }
+      >
+        {cfg.filters?.map((f) => (
+          <Select
+            key={f.key}
+            aria-label={f.label}
+            className="w-44"
+            value={extra[f.key] ?? ''}
+            placeholder={f.label}
+            options={f.options}
+            onChange={(v) => {
+              setPage(1);
+              setExtra((s) => ({ ...s, [f.key]: v }));
+            }}
           />
-        )}
-      </Card>
+        ))}
+        <Select
+          aria-label={t('common.status')}
+          className="w-36"
+          value={active}
+          placeholder={t('common.status')}
+          options={[
+            { value: '1', label: t('common.active') },
+            { value: '0', label: t('common.inactive') },
+          ]}
+          onChange={(v) => {
+            setPage(1);
+            setActive(v);
+          }}
+        />
+        <span className="ms-auto self-center text-sm text-ink-2" data-testid="crud-total">
+          {t('ui.total', { n: list.data?.total ?? 0 })}
+        </span>
+      </FilterBar>
+
+      {list.error ? (
+        <ErrorBlock message={errorMessage(list.error)} onRetry={() => void list.refetch()} />
+      ) : (
+        <DataTable
+          testId="crud"
+          columns={columns}
+          rows={list.data?.items}
+          rowKey={(r) => r.id}
+          loading={list.isFetching}
+          page={page}
+          pageSize={pageSize}
+          total={list.data?.total ?? 0}
+          onPageChange={setPage}
+          sort={sort}
+          onSortChange={setSort}
+          mobileCard={cfg.mobileCard}
+          rowActions={
+            canManage
+              ? (row) => (
+                  <>
+                    {cfg.rowActions?.(row, () => void reload())}
+                    <Menu
+                      align="end"
+                      items={[{ key: 'edit', label: t('common.edit'), icon: <Icon as={Pencil} size={16} />, testId: 'crud-edit', onSelect: () => open('edit', row) }]}
+                      trigger={<IconButton icon={<Icon as={MoreHorizontal} size={18} />} label={t('ui.more')} data-testid={'crud-menu-' + row.id} />}
+                    />
+                  </>
+                )
+              : cfg.rowActions
+                ? (row) => cfg.rowActions!(row, () => void reload())
+                : undefined
+          }
+        />
+      )}
 
       <Modal
+        testId="crud-form"
         open={!!editing}
         onClose={() => setEditing(null)}
         size={cfg.modalSize ?? 'md'}
+        dismissable={!save.isPending}
         title={`${editing?.mode === 'create' ? t('common.create') : t('common.edit')} - ${cfg.title}`}
         footer={
           <>
+            <Button loading={save.isPending} onClick={submit} data-testid="crud-save">
+              {t('common.save')}
+            </Button>
             <Button variant="secondary" onClick={() => setEditing(null)}>
               {t('common.cancel')}
-            </Button>
-            <Button loading={save.isPending} onClick={submit}>
-              {t('common.save')}
             </Button>
           </>
         }
@@ -312,28 +357,30 @@ export function CrudPage<T extends { id: string; isActive?: boolean }>(cfg: Crud
           }}
         >
           {formFields.map((f) => (
-            <FormField key={f.key} label={f.label} required={f.required} error={errors[f.key]} hint={f.hint} className={f.wide || f.type === 'textarea' ? 'sm:col-span-2' : undefined}>
-              {(id) => {
-                const v = values[f.key];
-                const disabled = editing?.mode === 'edit' && f.immutable;
-                const invalid = !!errors[f.key];
-                if (f.type === 'checkbox') return <Checkbox checked={Boolean(v)} onChange={(c) => set(f.key, c)} label={f.label} disabled={disabled} />;
-                if (f.type === 'textarea') return <Textarea id={id} value={String(v ?? '')} invalid={invalid} onChange={(e) => set(f.key, e.target.value)} />;
-                if (f.type === 'select') return <Select id={id} value={String(v ?? '')} invalid={invalid} disabled={disabled} options={f.options ?? []} placeholder={t('common.select')} onChange={(x) => set(f.key, x)} />;
-                if (f.type === 'lookup') return <LookupSelect id={id} entity={f.lookup!} value={String(v ?? '')} invalid={invalid} disabled={disabled} onChange={(x) => set(f.key, x)} />;
-                return (
-                  <Input
-                    id={id}
-                    type={f.type === 'number' ? 'number' : 'text'}
-                    value={String(v ?? '')}
-                    invalid={invalid}
-                    disabled={disabled}
-                    dir={f.ltr ? 'ltr' : undefined}
-                    onChange={(e) => set(f.key, e.target.value)}
-                  />
-                );
-              }}
-            </FormField>
+            <div key={f.key} data-testid={'crud-field-' + f.key} className={f.wide || f.type === 'textarea' ? 'sm:col-span-2' : undefined}>
+              <FormField label={f.label} required={f.required} error={errors[f.key]} hint={f.hint}>
+                {(id) => {
+                  const v = values[f.key];
+                  const disabled = editing?.mode === 'edit' && f.immutable;
+                  const invalid = !!errors[f.key];
+                  if (f.type === 'checkbox') return <Checkbox checked={Boolean(v)} onChange={(c) => set(f.key, c)} label={f.label} disabled={disabled} />;
+                  if (f.type === 'textarea') return <Textarea id={id} value={String(v ?? '')} invalid={invalid} onChange={(e) => set(f.key, e.target.value)} />;
+                  if (f.type === 'select') return <Select id={id} value={String(v ?? '')} invalid={invalid} disabled={disabled} options={f.options ?? []} placeholder={t('common.select')} onChange={(x) => set(f.key, x)} />;
+                  if (f.type === 'lookup') return <LookupSelect id={id} entity={f.lookup!} value={String(v ?? '')} invalid={invalid} disabled={disabled} onChange={(x) => set(f.key, x)} />;
+                  return (
+                    <Input
+                      id={id}
+                      numeric={f.type === 'number'}
+                      value={String(v ?? '')}
+                      invalid={invalid}
+                      disabled={disabled}
+                      {...(f.ltr ? { dir: 'ltr' } : {})}
+                      onChange={(e) => set(f.key, e.target.value)}
+                    />
+                  );
+                }}
+              </FormField>
+            </div>
           ))}
           {cfg.extraForm && <div className="sm:col-span-2">{cfg.extraForm({ values, set, errors, mode: editing?.mode ?? 'create' })}</div>}
         </form>
@@ -345,10 +392,11 @@ export function CrudPage<T extends { id: string; isActive?: boolean }>(cfg: Crud
         danger={toggle?.isActive !== false}
         loading={flip.isPending}
         message={toggle?.isActive === false ? t('common.activate') + '?' : t('common.deactivate') + '?'}
+        confirmTestId="crud-toggle-confirm"
         onConfirm={() => toggle && flip.mutate(toggle)}
       />
       {importing && <ImportDialog resource={cfg.resource} onClose={() => setImporting(false)} onDone={() => void reload()} />}
-    </>
+    </Page>
   );
 }
 

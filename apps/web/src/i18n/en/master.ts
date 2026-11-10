@@ -119,6 +119,19 @@ const dict: Dict = {
   'assign.filterDriver': 'All drivers',
   'assign.filterVehicle': 'All vehicles',
   'assign.vehicleStatus': 'Status',
+  'drivers.more': "Actions",
+  'drivers.relink': "Relink Telegram",
+  'drivers.link': "Link Telegram",
+  'sapSettings.cj.title': "Cash journal",
+  'sapSettings.cj.subtitle': "Treasury expenses are posted as payment items of a cash journal",
+  'sapSettings.cj.defaultNumber': "Default cash journal number",
+  'sapSettings.cj.businessTransaction': "Business transaction",
+  'sapSettings.cj.businessTransactionHint': "Leave empty if SAP does not require it",
+  'sapSettings.cj.mapping': "Cash journal number per treasury",
+  'sapSettings.cj.mappingHint': "A treasury that is not listed uses the default number",
+  'sapSettings.cj.treasuryCode': "Treasury code",
+  'sapSettings.cj.number': "Journal number",
+  'sapSettings.cj.addRow': "Add treasury",
 };
 
 export default dict;

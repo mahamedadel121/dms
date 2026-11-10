@@ -1,6 +1,7 @@
 'use client';
 
 import { useT } from '@/lib/i18n';
+import { Code } from '@/components/ui';
 import { CrudPage } from '@/components/crud/CrudPage';
 
 interface Row {
@@ -22,7 +23,7 @@ export default function CostCentersPage() {
         { key: 'name', label: t('common.name'), type: 'text', required: true },
       ]}
       columns={[
-        { key: 'code', header: t('master.costCenters.code'), sortable: true, primary: true, cell: (r) => <bdi>{r.code}</bdi> },
+        { key: 'code', header: t('master.costCenters.code'), sortable: true, primary: true, cell: (r) => <Code>{r.code}</Code> },
         { key: 'name', header: t('common.name'), sortable: true },
       ]}
     />

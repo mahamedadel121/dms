@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { api } from '@/lib/api';
 import { useT } from '@/lib/i18n';
-import { Button, FileDrop, Modal, useToast } from '@/components/ui';
+import { Banner, Button, Code, FileDrop, Modal, useToast } from '@/components/ui';
 
 interface ImportResult {
   created: number;
@@ -67,19 +67,30 @@ export function ImportDialog({ resource, onClose, onDone }: { resource: string; 
         label={file ? file.name : t('import.chooseFile')}
       />
       {result && (
-        <div className="mt-4 space-y-2 text-sm">
-          <p className="font-semibold text-emerald-700">{t('import.created', { n: result.created })}</p>
-          <p className="font-semibold text-sky-700">{t('import.updated', { n: result.updated })}</p>
+        <div className="mt-4 space-y-3 text-sm" data-testid="import-result">
+          <Banner tone={result.errors.length > 0 ? 'danger' : 'success'}>
+            <span className="num">{t('import.created', { n: result.created })}</span> · <span className="num">{t('import.updated', { n: result.updated })}</span>
+            {result.errors.length > 0 && (
+              <>
+                {' · '}
+                <span className="num font-semibold">{t('import.errors', { n: result.errors.length })}</span>
+              </>
+            )}
+          </Banner>
           {result.errors.length > 0 && (
-            <div>
-              <p className="mb-1 font-semibold text-red-700">{t('import.errors', { n: result.errors.length })}</p>
-              <ul className="max-h-48 space-y-1 overflow-y-auto rounded-md bg-red-50 p-2 text-red-800">
-                {result.errors.map((e, i) => (
-                  <li key={i}>
-                    <b>{t('import.row', { row: e.row })}:</b> {e.message}
-                  </li>
-                ))}
-              </ul>
+            <div className="max-h-56 overflow-y-auto rounded border border-hairline">
+              <table className="w-full text-sm">
+                <tbody>
+                  {result.errors.map((e, i) => (
+                    <tr key={i} className="border-b border-hairline last:border-0">
+                      <td className="w-24 px-3 py-1.5 text-ink-3">
+                        <Code>{t('import.row', { row: e.row })}</Code>
+                      </td>
+                      <td className="px-3 py-1.5 text-danger">{e.message}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

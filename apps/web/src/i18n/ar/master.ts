@@ -119,6 +119,19 @@ const dict: Dict = {
   'assign.filterDriver': 'كل السائقين',
   'assign.filterVehicle': 'كل السيارات',
   'assign.vehicleStatus': 'الحالة',
+  'drivers.more': "إجراءات",
+  'drivers.relink': "إعادة ربط تليجرام",
+  'drivers.link': "ربط تليجرام",
+  'sapSettings.cj.title': "دفتر النقدية (Cash Journal)",
+  'sapSettings.cj.subtitle': "تُرحَّل مصروفات الخزينة كبنود دفع في دفتر النقدية",
+  'sapSettings.cj.defaultNumber': "رقم دفتر النقدية الافتراضي",
+  'sapSettings.cj.businessTransaction': "نوع العملية (Business Transaction)",
+  'sapSettings.cj.businessTransactionHint': "اتركه فارغًا إن لم يُطلب من SAP",
+  'sapSettings.cj.mapping': "رقم دفتر النقدية لكل خزينة",
+  'sapSettings.cj.mappingHint': "الخزينة غير المذكورة تستخدم الرقم الافتراضي",
+  'sapSettings.cj.treasuryCode': "كود الخزينة",
+  'sapSettings.cj.number': "رقم الدفتر",
+  'sapSettings.cj.addRow': "إضافة خزينة",
 };
 
 export default dict;

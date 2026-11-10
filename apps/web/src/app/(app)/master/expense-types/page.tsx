@@ -2,7 +2,7 @@
 
 import { Plus, Trash2 } from 'lucide-react';
 import { useT } from '@/lib/i18n';
-import { Badge, Button, Card, Checkbox, FormField, Input, LookupMultiSelect, Select, Textarea } from '@/components/ui';
+import { Badge, Button, Card, Checkbox, Code, FormField, Input, LookupMultiSelect, Select, Textarea } from '@/components/ui';
 import { CrudPage, type FormCtx, type Values } from '@/components/crud/CrudPage';
 
 interface FieldDef {
@@ -76,9 +76,9 @@ function ExtraFieldsEditor({ ctx }: { ctx: FormCtx }) {
 
   return (
     <div className="space-y-3">
-      {fields.length === 0 && <p className="text-sm text-slate-500">{t('master.expenseTypes.noFields')}</p>}
+      {fields.length === 0 && <p className="text-sm text-ink-3">{t('master.expenseTypes.noFields')}</p>}
       {fields.map((f, i) => (
-        <Card key={i} className="bg-slate-50" title={<span dir="ltr">{f.key || '...'}</span>} actions={
+        <Card key={i} className="bg-surface-2" title={<span dir="ltr">{f.key || '...'}</span>} actions={
           <Button size="sm" variant="ghost" icon={<Trash2 className="h-4 w-4" />} aria-label={t('master.expenseTypes.removeField')} onClick={() => setFields(fields.filter((_, idx) => idx !== i))} />
         }>
           <div className="grid gap-3 sm:grid-cols-3">
@@ -129,7 +129,7 @@ function ExtraForm({ ctx }: { ctx: FormCtx }) {
   const { values, set } = ctx;
   const numericKeys = ((values.extraFields as EditableField[]) ?? []).filter((f) => f.type === 'number' && f.key).map((f) => ({ value: f.key, label: f.key }));
   return (
-    <div className="space-y-5 border-t border-slate-100 pt-4">
+    <div className="space-y-5 border-t border-hairline pt-4">
       <div className="grid gap-4 sm:grid-cols-3">
         <FormField label={t('master.expenseTypes.minAttachments')}>{(id) => <Input id={id} type="number" min={0} value={s(values.minAttachments)} onChange={(e) => set('minAttachments', e.target.value)} />}</FormField>
         <FormField label={t('master.expenseTypes.maxAttachments')}>{(id) => <Input id={id} type="number" min={1} value={s(values.maxAttachments)} onChange={(e) => set('maxAttachments', e.target.value)} />}</FormField>
@@ -148,7 +148,7 @@ function ExtraForm({ ctx }: { ctx: FormCtx }) {
         <LookupMultiSelect entity="roles" value={(values.approvalRoleIds as string[]) ?? []} onChange={(ids) => set('approvalRoleIds', ids)} />
       </FormField>
       <div>
-        <p className="mb-2 text-sm font-semibold text-slate-700">{t('master.expenseTypes.extraFields')}</p>
+        <p className="mb-2 text-sm font-semibold text-ink-2">{t('master.expenseTypes.extraFields')}</p>
         <ExtraFieldsEditor ctx={ctx} />
       </div>
     </div>
@@ -215,8 +215,8 @@ export default function ExpenseTypesPage() {
       extraForm={(ctx) => <ExtraForm ctx={ctx} />}
       columns={[
         { key: 'sortOrder', header: '#', sortable: true, className: 'w-12' },
-        { key: 'nameAr', header: t('common.name'), sortable: true, primary: true, cell: (r) => <span>{r.icon} {r.nameAr} <span className="text-xs text-slate-400" dir="ltr">({r.code})</span></span> },
-        { key: 'gl', header: t('master.expenseTypes.gl'), cell: (r) => (r.glNumber ? <bdi>{r.glNumber}</bdi> : '-') },
+        { key: 'nameAr', header: t('common.name'), sortable: true, primary: true, cell: (r) => <span>{r.icon} {r.nameAr} <span className="text-xs text-ink-3" dir="ltr">({r.code})</span></span> },
+        { key: 'gl', header: t('master.expenseTypes.gl'), cell: (r) => (r.glNumber ? <Code>{r.glNumber}</Code> : '-') },
         {
           key: 'roles',
           header: t('master.expenseTypes.extraRoles'),

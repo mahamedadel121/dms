@@ -1,6 +1,7 @@
 'use client';
 
 import { useT } from '@/lib/i18n';
+import { Code } from '@/components/ui';
 import { CrudPage } from '@/components/crud/CrudPage';
 
 interface Row {
@@ -24,7 +25,7 @@ export default function DepartmentsPage() {
         { key: 'nameEn', label: t('common.nameEn'), type: 'text', required: true, ltr: true },
       ]}
       columns={[
-        { key: 'code', header: t('common.code'), sortable: true, cell: (r) => <bdi>{r.code}</bdi> },
+        { key: 'code', header: t('common.code'), sortable: true, cell: (r) => <Code>{r.code}</Code> },
         { key: 'nameAr', header: t('common.nameAr'), sortable: true, primary: true },
         { key: 'nameEn', header: t('common.nameEn'), sortable: true },
       ]}

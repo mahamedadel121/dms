@@ -1,7 +1,7 @@
 'use client';
 
 import { useT } from '@/lib/i18n';
-import { Badge, type BadgeTone } from '@/components/ui';
+import { Badge, Code, type BadgeTone } from '@/components/ui';
 import { CrudPage } from '@/components/crud/CrudPage';
 
 interface Vehicle {
@@ -27,6 +27,16 @@ export default function VehiclesPage() {
   return (
     <CrudPage<Vehicle>
       resource="vehicles"
+      mobileCard={(r) => (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between gap-2">
+            <Code className="font-semibold">{r.number}</Code>
+            <Badge tone={TONE[r.status]}>{t(`master.vehicles.st.${r.status}`)}</Badge>
+          </div>
+          <p className="text-sm text-ink-2">{[r.vehicleTypeName, r.plateNumber].filter(Boolean).join(' · ')}</p>
+          <p className="text-xs text-ink-3">{r.currentDriver?.name ?? '-'}</p>
+        </div>
+      )}
       title={t('master.vehicles.title')}
       subtitle={t('master.vehicles.subtitle')}
       initial={{ number: '', plateNumber: '', vehicleTypeId: '', costCenterId: '', status: 'ACTIVE', notes: '', isActive: true }}
@@ -40,10 +50,10 @@ export default function VehiclesPage() {
         { key: 'notes', label: t('common.notes'), type: 'textarea' },
       ]}
       columns={[
-        { key: 'number', header: t('master.vehicles.number'), sortable: true, primary: true, cell: (r) => <bdi className="font-semibold">{r.number}</bdi> },
+        { key: 'number', header: t('master.vehicles.number'), sortable: true, primary: true, cell: (r) => <Code className="font-semibold">{r.number}</Code> },
         { key: 'plateNumber', header: t('master.vehicles.plate'), sortable: true, cell: (r) => r.plateNumber ?? '' },
         { key: 'vehicleTypeName', header: t('master.vehicles.type') },
-        { key: 'costCenterCode', header: t('master.vehicles.costCenter'), cell: (r) => <bdi>{r.costCenterCode}</bdi> },
+        { key: 'costCenterCode', header: t('master.vehicles.costCenter'), cell: (r) => <Code>{r.costCenterCode}</Code> },
         { key: 'status', header: t('master.vehicles.status'), sortable: true, cell: (r) => <Badge tone={TONE[r.status]}>{t(`master.vehicles.st.${r.status}`)}</Badge> },
         { key: 'currentDriver', header: t('master.vehicles.driver'), cell: (r) => r.currentDriver?.name ?? '-' },
       ]}
