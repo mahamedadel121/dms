@@ -1,0 +1,26 @@
+{
+  "name": "@dms/core",
+  "version": "0.1.0",
+  "private": true,
+  "exports": { "./*": "./src/*/index.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "seed:demo": "tsx scripts/seed-demo.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.0.0",
+    "@dms/db": "workspace:*",
+    "@dms/shared": "workspace:*",
+    "@fontsource/cairo": "^5.1.0",
+    "archiver": "^7.0.0",
+    "decimal.js": "^10.4.3",
+    "exceljs": "^4.4.0",
+    "pdf-lib": "^1.17.1",
+    "pino": "^9.5.0",
+    "playwright": "^1.49.0",
+    "sharp": "^0.34.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": { "@types/archiver": "^6.0.0" }
+}
