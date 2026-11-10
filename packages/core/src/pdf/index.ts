@@ -1,43 +1,105 @@
+import { createHash } from 'node:crypto';
 import type { PrismaClient, RequestDocument } from '@prisma/client';
 import type { TemplateConfig } from '@dms/shared';
 import type { Db } from '../common';
-import type { StorageAdapter } from '../storage';
 import { DomainError } from '../errors';
+import { getStorage, type StorageAdapter } from '../storage';
+import { buildDocumentModel, buildSampleDocumentModel, type ModelOptions } from './model';
+import { renderDocumentHtml } from './html';
+import { htmlToPdf } from './browser';
 
-// TODO(WP4): implement per PLAN section 9.
-export type DocumentModel = Record<string, unknown>;
+export { amountToArabicWords, integerToArabicWords } from './amountWords';
+export { buildDocumentModel, buildSampleDocumentModel, DEFAULT_TEMPLATE_CONFIG } from './model';
+export type { DocumentModel, SignatureBlock, ModelOptions } from './model';
+export { renderDocumentHtml, escapeHtml } from './html';
+export { htmlToPdf, closePdfBrowser } from './browser';
 
-const ni = (n: string): never => {
-  throw new DomainError('NOT_IMPLEMENTED', `${n} is not implemented yet (WP4)`);
-};
-
-export async function buildDocumentModel(
-  _db: Db,
-  _requestId: string,
-  _o?: { templateConfig?: TemplateConfig },
-): Promise<DocumentModel> {
-  return ni('buildDocumentModel');
-}
-export function renderDocumentHtml(_model: DocumentModel): string {
-  return ni('renderDocumentHtml');
-}
-export async function htmlToPdf(_html: string): Promise<Buffer> {
-  return ni('htmlToPdf');
-}
 export async function renderRequestPdf(
-  _db: Db,
-  _requestId: string,
-  _o?: { templateConfig?: TemplateConfig },
+  db: Db,
+  requestId: string,
+  o?: { templateConfig?: TemplateConfig; storage?: StorageAdapter },
 ): Promise<Buffer> {
-  return ni('renderRequestPdf');
+  const model = await buildDocumentModel(db, requestId, o as ModelOptions);
+  return htmlToPdf(renderDocumentHtml(model));
 }
+
+/** HTML of a template filled with sample data (template editor, no request chosen). */
+export function renderSampleHtml(cfg: TemplateConfig, layoutKey?: string): string {
+  return renderDocumentHtml(buildSampleDocumentModel(cfg, layoutKey));
+}
+
+export function sha256Hex(b: Buffer): string {
+  return createHash('sha256').update(b).digest('hex');
+}
+
+/**
+ * Idempotent final PDF (job pdf.finalize). An existing FINAL document is returned untouched;
+ * the stored file is never overwritten.
+ */
 export async function finalizeRequestPdf(
-  _prisma: PrismaClient,
-  _storage: StorageAdapter,
-  _requestId: string,
+  prisma: PrismaClient,
+  storage: StorageAdapter | undefined,
+  requestId: string,
 ): Promise<RequestDocument> {
-  return ni('finalizeRequestPdf');
+  const store = storage ?? getStorage();
+  const existing = await prisma.requestDocument.findUnique({ where: { requestId_kind: { requestId, kind: 'FINAL' } } });
+  if (existing) return existing;
+  const req = await prisma.request.findUnique({
+    where: { id: requestId },
+    select: { id: true, number: true, status: true, templateVersionId: true },
+  });
+  if (!req) throw new DomainError('NOT_FOUND', 'Request not found');
+  if (req.status !== 'PAID') throw new DomainError('INVALID_STATE', 'Final PDF can only be generated for a PAID request');
+
+  const key = `documents/${req.number}/final.pdf`;
+  if (await store.exists(key)) {
+    // a previous attempt stored the file but crashed before the row insert: adopt the stored bytes
+    const stored = await store.get(key);
+    return insertDocument(prisma, requestId, req, key, sha256Hex(stored), stored.length);
+  }
+  const pdf = await renderRequestPdf(prisma, requestId, { storage: store });
+  await store.put(key, pdf, { contentType: 'application/pdf', ifNotExists: true });
+  return insertDocument(prisma, requestId, req, key, sha256Hex(pdf), pdf.length);
 }
-export function amountToArabicWords(_amount: string): string {
-  return ni('amountToArabicWords');
+
+async function insertDocument(
+  prisma: PrismaClient,
+  requestId: string,
+  req: { templateVersionId: string | null },
+  key: string,
+  sha256: string,
+  sizeBytes: number,
+): Promise<RequestDocument> {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const doc = await tx.requestDocument.create({
+        data: { requestId, templateVersionId: req.templateVersionId, kind: 'FINAL', storageKey: key, sha256, sizeBytes, isLocked: true },
+      });
+      await tx.requestEvent.create({
+        data: { requestId, type: 'PDF_FINALIZED', actorType: 'SYSTEM', data: { sha256, storageKey: key } },
+      });
+      return doc;
+    });
+  } catch (e) {
+    const again = await prisma.requestDocument.findUnique({ where: { requestId_kind: { requestId, kind: 'FINAL' } } });
+    if (again) return again; // concurrent finalize won
+    throw e;
+  }
+}
+
+/** Recomputes the hash of the stored final PDF. */
+export async function verifyFinalPdf(
+  db: Db,
+  storage: StorageAdapter,
+  requestId: string,
+): Promise<{ ok: boolean; sha256: string | null; actualSha256: string | null; locked: boolean }> {
+  const doc = await db.requestDocument.findUnique({ where: { requestId_kind: { requestId, kind: 'FINAL' } } });
+  if (!doc) return { ok: false, sha256: null, actualSha256: null, locked: false };
+  let actual: string | null = null;
+  try {
+    actual = sha256Hex(await storage.get(doc.storageKey));
+  } catch {
+    actual = null;
+  }
+  return { ok: actual === doc.sha256, sha256: doc.sha256, actualSha256: actual, locked: doc.isLocked };
 }
