@@ -55,5 +55,16 @@ const dict: Dict = {
   'col.approvers': 'الموافقون',
   'col.sap': 'مستند SAP',
   'col.images': 'الصور',
+  'export': 'تصدير',
+  'showFilters': 'عرض المرشحات',
+  'section.period': 'الفترة',
+  'section.who': 'الجهة',
+  'section.what': 'البند',
+  'section.amounts': 'المبالغ',
+  'col.size': 'الحجم',
+  'col.rows': 'الصفوف',
+  'col.created': 'أُنشئ',
+  'col.kind': 'النوع',
+  'selectFirst': 'اختر المرشحات ثم اضغط تشغيل التقرير',
 };
 export default dict;

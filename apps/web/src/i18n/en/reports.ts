@@ -55,5 +55,16 @@ const dict: Dict = {
   'col.approvers': 'Approvers',
   'col.sap': 'SAP doc',
   'col.images': 'Images',
+  'export': 'Export',
+  'showFilters': 'Show filters',
+  'section.period': 'Period',
+  'section.who': 'Who',
+  'section.what': 'What',
+  'section.amounts': 'Amounts',
+  'col.size': 'Size',
+  'col.rows': 'Rows',
+  'col.created': 'Created',
+  'col.kind': 'Kind',
+  'selectFirst': 'Choose filters, then run the report',
 };
 export default dict;
