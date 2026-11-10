@@ -2,21 +2,34 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, X } from 'lucide-react';
+import { ArrowRight, Ban, Check, Clock3, X, type LucideIcon } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { formatDateTime } from '@/lib/format';
-import { Badge, Card, ErrorBlock, PageHeader, Tabs } from '@/components/ui/Display';
-import { DataTable, type Column } from '@/components/ui/DataTable';
-import { Button } from '@/components/ui/Button';
-import { FormField, Textarea } from '@/components/ui/Fields';
-import { LookupSelect } from '@/components/ui/Inputs2';
-import { Modal } from '@/components/ui/Modal';
-import { useToast } from '@/components/ui/Toast';
+import {
+  Avatar, Badge, Button, Code, DataTable, DateText, ErrorBlock, FormField, Icon, LookupSelect, Modal, Page, PageHeader, Tabs, Textarea, useToast,
+  type BadgeTone, type Column,
+} from '@/components/ui';
 import { useTr } from '../common/useTr';
 import type { PagedResult, VehicleChangeRow } from '../types';
 
-const tone = { PENDING: 'amber', APPROVED: 'green', REJECTED: 'red', CANCELLED: 'gray' } as const;
+const VCR_TONE: Record<VehicleChangeRow['status'], BadgeTone> = { PENDING: 'amber', APPROVED: 'green', REJECTED: 'red', CANCELLED: 'gray' };
+const VCR_ICON: Record<VehicleChangeRow['status'], LucideIcon> = { PENDING: Clock3, APPROVED: Check, REJECTED: X, CANCELLED: Ban };
+
+function VehicleFlow({ row }: { row: VehicleChangeRow }) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      {row.fromVehicleNumber ? <Code>{row.fromVehicleNumber}</Code> : <span className="text-ink-3">—</span>}
+      <Icon as={ArrowRight} mirror size={16} className="text-ink-3" />
+      {row.toVehicleNumber ? (
+        <Code>{row.toVehicleNumber}</Code>
+      ) : row.requestedVehicleText ? (
+        <Badge tone="amber">{row.requestedVehicleText}</Badge>
+      ) : (
+        <span className="text-ink-3">—</span>
+      )}
+    </span>
+  );
+}
 
 export function VehicleChangesPage() {
   const { t } = useTr();
@@ -53,30 +66,52 @@ export function VehicleChangesPage() {
     setDlg({ row, kind });
   };
 
+  const statusChip = (r: VehicleChangeRow) => (
+    <span className="inline-flex items-center gap-2">
+      <Badge tone={VCR_TONE[r.status]} icon={<Icon as={VCR_ICON[r.status]} size={14} />}>
+        {t(`requests.vcr.status.${r.status}`)}
+      </Badge>
+      {r.decidedByName && <span className="text-xs text-ink-3">{r.decidedByName}</span>}
+    </span>
+  );
+
   const columns: Column<VehicleChangeRow>[] = [
-    { key: 'submitterName', header: t('requests.vcr.driver'), primary: true },
-    { key: 'from', header: t('requests.vcr.from'), cell: (r) => r.fromVehicleNumber ?? '—' },
-    { key: 'to', header: t('requests.vcr.to'), cell: (r) => r.toVehicleNumber ?? r.requestedVehicleText ?? '—' },
-    { key: 'createdAt', header: t('requests.vcr.createdAt'), cell: (r) => formatDateTime(r.createdAt) },
     {
-      key: 'status',
-      header: t('common.status'),
+      key: 'submitterName',
+      header: t('requests.vcr.driver'),
+      primary: true,
       cell: (r) => (
-        <span>
-          <Badge tone={tone[r.status]}>{t(`requests.vcr.status.${r.status}`)}</Badge>
-          {r.decidedByName && <span className="ms-2 text-xs text-slate-500">{r.decidedByName}</span>}
+        <span className="inline-flex items-center gap-2">
+          <Avatar name={r.submitterName} size={24} />
+          <span>{r.submitterName}</span>
         </span>
       ),
     },
+    { key: 'vehicles', header: `${t('requests.vcr.from')} / ${t('requests.vcr.to')}`, cell: (r) => <VehicleFlow row={r} /> },
+    { key: 'createdAt', header: t('requests.vcr.createdAt'), cell: (r) => <DateText value={r.createdAt} mode="relative" /> },
+    { key: 'status', header: t('common.status'), cell: statusChip },
   ];
 
   const needsVehicle = !!dlg && dlg.kind === 'approve' && !dlg.row.toVehicleId;
 
+  const actions = can('vehicle_changes.decide')
+    ? (r: VehicleChangeRow) =>
+        r.status === 'PENDING' ? (
+          <>
+            <Button size="sm" icon={<Icon as={Check} size={16} />} onClick={() => open(r, 'approve')}>
+              {t('requests.vcr.approve')}
+            </Button>
+            <Button size="sm" variant="danger-outline" icon={<Icon as={X} size={16} />} onClick={() => open(r, 'reject')}>
+              {t('requests.vcr.reject')}
+            </Button>
+          </>
+        ) : null
+    : undefined;
+
   return (
-    <div>
+    <Page testId="page-vehicle-changes">
       <PageHeader title={t('requests.vcr.title')} subtitle={t('requests.vcr.subtitle')} />
       <Tabs
-        className="mb-3"
         value={tab}
         onChange={(k) => setTab(k as 'PENDING' | 'ALL')}
         items={[
@@ -84,30 +119,25 @@ export function VehicleChangesPage() {
           { key: 'ALL', label: t('requests.vcr.tabAll') },
         ]}
       />
-      {q.isError && <ErrorBlock message={(q.error as Error).message} />}
-      <Card padded={false}>
-        <DataTable
-          columns={columns}
-          rows={q.data}
-          rowKey={(r) => r.id}
-          loading={q.isFetching}
-          rowActions={
-            can('vehicle_changes.decide')
-              ? (r) =>
-                  r.status === 'PENDING' ? (
-                    <>
-                      <Button size="sm" icon={<Check className="h-4 w-4" />} onClick={() => open(r, 'approve')}>
-                        {t('requests.vcr.approve')}
-                      </Button>
-                      <Button size="sm" variant="danger" icon={<X className="h-4 w-4" />} onClick={() => open(r, 'reject')}>
-                        {t('requests.vcr.reject')}
-                      </Button>
-                    </>
-                  ) : null
-              : undefined
-          }
-        />
-      </Card>
+      {q.isError && <ErrorBlock message={(q.error as Error).message} onRetry={() => void q.refetch()} />}
+      <DataTable
+        testId="vehicle-changes"
+        columns={columns}
+        rows={q.data}
+        rowKey={(r) => r.id}
+        loading={q.isFetching}
+        rowActions={actions}
+        mobileCard={(r) => (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-medium">{r.submitterName}</span>
+              <DateText value={r.createdAt} mode="relative" className="text-xs text-ink-3" />
+            </div>
+            <VehicleFlow row={r} />
+            <div>{statusChip(r)}</div>
+          </div>
+        )}
+      />
 
       <Modal
         open={!!dlg}
@@ -115,9 +145,6 @@ export function VehicleChangesPage() {
         title={dlg?.kind === 'approve' ? t('requests.vcr.approveTitle') : t('requests.vcr.rejectTitle')}
         footer={
           <>
-            <Button variant="secondary" onClick={() => setDlg(null)}>
-              {t('common.cancel')}
-            </Button>
             <Button
               variant={dlg?.kind === 'reject' ? 'danger' : 'primary'}
               loading={decide.isPending}
@@ -126,14 +153,18 @@ export function VehicleChangesPage() {
             >
               {dlg?.kind === 'approve' ? t('requests.vcr.approve') : t('requests.vcr.reject')}
             </Button>
+            <Button variant="secondary" onClick={() => setDlg(null)}>
+              {t('common.cancel')}
+            </Button>
           </>
         }
       >
         {dlg && (
           <div className="space-y-3">
             <p className="text-sm">
-              <b>{dlg.row.submitterName}</b>: {dlg.row.fromVehicleNumber ?? '—'} → {dlg.row.toVehicleNumber ?? dlg.row.requestedVehicleText ?? '—'}
+              <b>{dlg.row.submitterName}</b>
             </p>
+            <VehicleFlow row={dlg.row} />
             {needsVehicle && (
               <FormField label={t('requests.vcr.to')} required>
                 {(id) => <LookupSelect id={id} entity="vehicles" value={toVehicleId} onChange={setToVehicleId} />}
@@ -143,6 +174,6 @@ export function VehicleChangesPage() {
           </div>
         )}
       </Modal>
-    </div>
+    </Page>
   );
 }

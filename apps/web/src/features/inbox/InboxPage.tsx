@@ -1,41 +1,24 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { AlertTriangle, Clock, Lock } from 'lucide-react';
+import { AlertTriangle, CheckCheck, ChevronRight, Clock, Lock, MessageSquareWarning } from 'lucide-react';
 import { api } from '@/lib/api';
-import { cairoDayToIso, formatEgp } from '@/lib/format';
 import { cn } from '@/lib/cn';
-import { Badge, Card, EmptyState, ErrorBlock, LoadingBlock, PageHeader, Tabs } from '@/components/ui/Display';
-import { Button } from '@/components/ui/Button';
-import { Checkbox, FormField, Input } from '@/components/ui/Fields';
+import {
+  Avatar, Badge, Button, Code, DataTable, DateRange, EmptyState, ErrorBlock, FilterBar, FilterChip, FormField, Icon, Input, LookupSelect, Money,
+  Page, PageHeader, Popover, SegmentedControl, Switch, Tabs, toDisplay, type Column,
+} from '@/components/ui';
 import { useTr } from '../common/useTr';
-import { LookupSelect } from '../common/lookups';
-import { Pager } from '../common/Pager';
 import { formatWaiting, waitingHours } from '../requests/helpers';
 import type { Paged, QueueCounter, QueueItem } from '../types';
-
-interface Filters {
-  tab: 'active' | 'awaiting';
-  roleId: string;
-  from: string;
-  to: string;
-  submitterId: string;
-  vehicleId: string;
-  minAmount: string;
-  maxAmount: string;
-  overdue: boolean;
-  minWaitHours: string;
-}
-const EMPTY: Filters = { tab: 'active', roleId: '', from: '', to: '', submitterId: '', vehicleId: '', minAmount: '', maxAmount: '', overdue: false, minWaitHours: '' };
+import { activeFilterCount, EMPTY_INBOX_FILTERS, INBOX_PAGE_SIZE, toQueueQuery, type InboxFilters } from './model';
 
 export function InboxPage() {
   const { t, locale } = useTr();
-  const [f, setF] = useState<Filters>(EMPTY);
+  const [f, setF] = useState<InboxFilters>(EMPTY_INBOX_FILTERS);
   const [page, setPage] = useState(1);
-  const [showFilters, setShowFilters] = useState(false);
-  const set = <K extends keyof Filters>(k: K, v: Filters[K]) => {
+  const set = <K extends keyof InboxFilters>(k: K, v: InboxFilters[K]) => {
     setF((p) => ({ ...p, [k]: v }));
     setPage(1);
   };
@@ -46,22 +29,7 @@ export function InboxPage() {
     refetchInterval: 30_000,
   });
 
-  const query = useMemo(
-    () => ({
-      tab: f.tab,
-      roleId: f.roleId,
-      from: f.from ? cairoDayToIso(f.from) : '',
-      to: f.to ? cairoDayToIso(f.to, true) : '',
-      submitterId: f.submitterId,
-      vehicleId: f.vehicleId,
-      minAmount: f.minAmount,
-      maxAmount: f.maxAmount,
-      overdue: f.overdue ? '1' : '',
-      page,
-      pageSize: 25,
-    }),
-    [f, page],
-  );
+  const query = useMemo(() => toQueueQuery(f, page), [f, page]);
   const list = useQuery({
     queryKey: ['queue', query],
     queryFn: () => api.get<Paged<QueueItem>>('/requests/queue', query),
@@ -82,192 +50,232 @@ export function InboxPage() {
     const h = waitingHours(it.step.activatedAt, now);
     return h !== null && h >= minWait;
   });
-  const totalCount = (counters.data ?? []).reduce((s, c) => s + c.count, 0);
+
+  const cs = counters.data ?? [];
+  const totalCount = cs.reduce((s, c) => s + c.count, 0);
+  const totalOverdue = cs.reduce((s, c) => s + c.overdue, 0);
+  const roleName = (c: QueueCounter) => (locale === 'ar' ? c.nameAr : c.nameEn || c.nameAr);
+  const stepName = (it: QueueItem) => (locale === 'ar' ? it.step.nameAr : it.step.nameEn || it.step.nameAr);
+  const summary =
+    totalCount === 0
+      ? t('inbox.summaryNone')
+      : totalOverdue > 0
+        ? t('inbox.summary', { n: totalCount, o: totalOverdue })
+        : t('inbox.summaryNoOverdue', { n: totalCount });
+  const selectedCounter = cs.find((c) => c.roleId === f.roleId);
+  const tabCount = counters.data ? (selectedCounter ? selectedCounter.count : totalCount) : undefined;
+
+  const columns: Column<QueueItem>[] = [
+    {
+      key: 'request',
+      header: t('requests.col.number'),
+      primary: true,
+      cell: (it) => (
+        <span data-request-id={it.id} data-number={it.number}>
+          <Code className="font-medium text-link">{it.number}</Code>
+        </span>
+      ),
+    },
+    {
+      key: 'driver',
+      header: t('requests.col.driver'),
+      cell: (it) => (
+        <span className="flex h-[60px] items-center gap-2">
+          <Avatar name={it.submitterName} size={24} />
+          <span className="flex flex-col">
+            <span className="text-sm">{it.submitterName}</span>
+            {!!it.summary?.vehicleNumber && <Code className="text-xs text-ink-3">{String(it.summary.vehicleNumber)}</Code>}
+          </span>
+        </span>
+      ),
+    },
+    { key: 'total', header: t('requests.col.total'), align: 'end', cell: (it) => <Money value={it.totalFinal} /> },
+    { key: 'step', header: t('requests.col.step'), cell: (it) => <span className="text-sm">{stepName(it)}</span> },
+    { key: 'waiting', header: t('requests.col.waiting'), cell: (it) => <Waiting item={it} now={now} /> },
+    { key: 'state', header: t('requests.col.status'), cell: (it) => <Flags item={it} /> },
+    { key: 'go', header: '', width: 'w-10', cell: () => <Icon as={ChevronRight} mirror size={16} className="text-ink-disabled" /> },
+  ];
+
+  const nActive = activeFilterCount(f);
+  const chips = (
+    <>
+      {(f.from || f.to) && (
+        <FilterChip
+          label={`${t('requests.filter.from')}: ${f.from ? toDisplay(f.from) : '…'} ${t('requests.filter.to')}: ${f.to ? toDisplay(f.to) : '…'}`}
+          onRemove={() => setF((p) => ({ ...p, from: '', to: '' }))}
+        />
+      )}
+      {f.submitterId && <FilterChip label={t('requests.filter.driver')} onRemove={() => set('submitterId', '')} />}
+      {f.vehicleId && <FilterChip label={t('requests.filter.vehicle')} onRemove={() => set('vehicleId', '')} />}
+      {f.minAmount && <FilterChip label={`${t('requests.filter.minAmount')}: ${f.minAmount}`} onRemove={() => set('minAmount', '')} />}
+      {f.maxAmount && <FilterChip label={`${t('requests.filter.maxAmount')}: ${f.maxAmount}`} onRemove={() => set('maxAmount', '')} />}
+      {f.minWaitHours && <FilterChip label={`${t('requests.filter.minWaitHours')}: ${f.minWaitHours}`} onRemove={() => set('minWaitHours', '')} />}
+      {f.overdue && <FilterChip label={t('requests.filter.overdueOnly')} onRemove={() => set('overdue', false)} />}
+    </>
+  );
 
   return (
-    <div>
-      <PageHeader title={t('requests.inbox.title')} subtitle={t('requests.inbox.subtitle')} />
+    <Page testId="page-inbox">
+      <PageHeader title={t('requests.inbox.title')} subtitle={<span data-testid="inbox-summary">{summary}</span>} />
 
-      <div className="mb-4 flex flex-wrap gap-2" aria-label={t('requests.inbox.counters')}>
-        <CounterChip active={f.roleId === ''} onClick={() => set('roleId', '')} label={t('requests.inbox.allRoles')} count={totalCount} />
-        {(counters.data ?? []).map((c) => (
-          <CounterChip
-            key={c.roleId}
-            active={f.roleId === c.roleId}
-            onClick={() => set('roleId', f.roleId === c.roleId ? '' : c.roleId)}
-            label={locale === 'ar' ? c.nameAr : c.nameEn || c.nameAr}
-            count={c.count}
-            overdue={c.overdue}
+      {cs.length > 1 && (
+        <div className="overflow-x-auto">
+          <SegmentedControl
+            size="md"
+            ariaLabel={t('requests.inbox.counters')}
+            value={f.roleId}
+            onChange={(v) => set('roleId', v)}
+            items={[
+              { value: '', testId: 'inbox-role-all', label: <RoleLabel label={t('requests.inbox.allRoles')} count={totalCount} overdue={totalOverdue} /> },
+              ...cs.map((c) => ({ value: c.roleId, testId: 'inbox-role-' + c.roleId, label: <RoleLabel label={roleName(c)} count={c.count} overdue={c.overdue} /> })),
+            ]}
           />
-        ))}
-      </div>
+        </div>
+      )}
 
       <Tabs
-        className="mb-3"
         value={f.tab}
-        onChange={(k) => set('tab', k as Filters['tab'])}
+        onChange={(k) => set('tab', k as InboxFilters['tab'])}
         items={[
-          { key: 'active', label: t('requests.inbox.tabActive') },
+          { key: 'active', label: t('requests.inbox.tabActive'), count: tabCount },
           { key: 'awaiting', label: t('requests.inbox.tabAwaiting') },
         ]}
       />
 
-      <Card className="mb-4" padded>
-        <button type="button" className="mb-2 text-sm font-semibold text-brand-800 md:hidden" onClick={() => setShowFilters((s) => !s)}>
-          {t('requests.inbox.filters')} {showFilters ? '▲' : '▼'}
-        </button>
-        <div className={cn('grid gap-3 sm:grid-cols-2 lg:grid-cols-4', showFilters ? '' : 'hidden md:grid')}>
-          <FormField label={t('requests.filter.from')}>{(id) => <Input id={id} type="date" value={f.from} onChange={(e) => set('from', e.target.value)} />}</FormField>
-          <FormField label={t('requests.filter.to')}>{(id) => <Input id={id} type="date" value={f.to} onChange={(e) => set('to', e.target.value)} />}</FormField>
-          <FormField label={t('requests.filter.driver')}>
-            {(id) => <LookupSelect id={id} entity="submitters" value={f.submitterId} onChange={(v) => set('submitterId', v)} placeholder={t('requests.filter.any')} />}
-          </FormField>
-          <FormField label={t('requests.filter.vehicle')}>
-            {(id) => <LookupSelect id={id} entity="vehicles" value={f.vehicleId} onChange={(v) => set('vehicleId', v)} placeholder={t('requests.filter.any')} />}
-          </FormField>
-          <FormField label={t('requests.filter.minAmount')}>
-            {(id) => <Input id={id} inputMode="decimal" value={f.minAmount} onChange={(e) => set('minAmount', e.target.value)} />}
-          </FormField>
-          <FormField label={t('requests.filter.maxAmount')}>
-            {(id) => <Input id={id} inputMode="decimal" value={f.maxAmount} onChange={(e) => set('maxAmount', e.target.value)} />}
-          </FormField>
-          <FormField label={t('requests.filter.minWaitHours')}>
-            {(id) => <Input id={id} inputMode="numeric" value={f.minWaitHours} onChange={(e) => set('minWaitHours', e.target.value.replace(/[^\d]/g, ''))} />}
-          </FormField>
-          <div className="flex items-end gap-3 pb-2">
-            <Checkbox checked={f.overdue} onChange={(c) => set('overdue', c)} label={t('requests.filter.overdueOnly')} />
-            <Button size="sm" variant="ghost" onClick={() => setF({ ...EMPTY, tab: f.tab })}>
-              {t('common.reset')}
+      <FilterBar activeCount={nActive} onReset={() => setF({ ...EMPTY_INBOX_FILTERS, tab: f.tab, roleId: f.roleId })} chips={nActive > 0 ? chips : undefined}>
+        <DateRange from={f.from} to={f.to} onChange={(v) => setF((p) => ({ ...p, ...v }))} />
+        <FormField label={t('requests.filter.driver')} className="w-44">
+          {(id) => <LookupSelect id={id} entity="submitters" value={f.submitterId} onChange={(v) => set('submitterId', v)} placeholder={t('requests.filter.any')} />}
+        </FormField>
+        <FormField label={t('requests.filter.vehicle')} className="w-44">
+          {(id) => <LookupSelect id={id} entity="vehicles" value={f.vehicleId} onChange={(v) => set('vehicleId', v)} placeholder={t('requests.filter.any')} />}
+        </FormField>
+        <Popover
+          align="start"
+          className="w-72 space-y-3"
+          trigger={
+            <Button variant="secondary" data-testid="inbox-more-filters">
+              {t('inbox.moreFilters')}
             </Button>
-          </div>
-        </div>
-      </Card>
+          }
+        >
+          <FormField label={t('requests.filter.minAmount')}>{(id) => <Input id={id} numeric value={f.minAmount} onChange={(e) => set('minAmount', e.target.value)} />}</FormField>
+          <FormField label={t('requests.filter.maxAmount')}>{(id) => <Input id={id} numeric value={f.maxAmount} onChange={(e) => set('maxAmount', e.target.value)} />}</FormField>
+          <FormField label={t('requests.filter.minWaitHours')}>
+            {(id) => <Input id={id} numeric value={f.minWaitHours} onChange={(e) => set('minWaitHours', e.target.value.replace(/[^\d]/g, ''))} />}
+          </FormField>
+        </Popover>
+        <Switch checked={f.overdue} onChange={(c) => set('overdue', c)} label={t('requests.filter.overdueOnly')} />
+      </FilterBar>
 
-      {list.isError && <ErrorBlock message={(list.error as Error).message} />}
-      {list.isLoading ? (
-        <LoadingBlock />
-      ) : items.length === 0 ? (
-        <Card>
-          <EmptyState title={t('requests.inbox.empty')} />
-        </Card>
+      {list.isError && <ErrorBlock message={(list.error as Error).message} onRetry={() => void list.refetch()} />}
+      {!list.isLoading && items.length === 0 ? (
+        <div data-testid="inbox-empty">
+          {f.tab === 'awaiting' ? (
+            <EmptyState icon={<Icon as={MessageSquareWarning} size={24} />} title={t('inbox.emptyAwaiting')} />
+          ) : (
+            <EmptyState icon={<Icon as={CheckCheck} size={24} />} title={t('inbox.emptyTitle')} hint={t('inbox.emptyHint')} />
+          )}
+        </div>
       ) : (
-        <>
-          {/* desktop table */}
-          <div className="hidden overflow-x-auto rounded-xl border border-slate-200 bg-white md:block">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-start text-xs text-slate-500">
-                <tr>
-                  {['number', 'driver', 'vehicle', 'total', 'step', 'waiting', 'status'].map((k) => (
-                    <th key={k} className="px-3 py-2 text-start font-semibold">
-                      {t(`requests.col.${k}`)}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {items.map((it) => (
-                  <tr key={it.id} className="hover:bg-slate-50">
-                    <td className="px-3 py-2 font-semibold">
-                      <Link href={`/requests/${it.id}`} className="text-brand-800 hover:underline">
-                        {it.number}
-                      </Link>
-                    </td>
-                    <td className="px-3 py-2">{it.submitterName}</td>
-                    <td className="px-3 py-2 tabular-nums">{String(it.summary?.vehicleNumber ?? '')}</td>
-                    <td className="px-3 py-2 tabular-nums">{formatEgp(it.totalFinal, locale)}</td>
-                    <td className="px-3 py-2">{locale === 'ar' ? it.step.nameAr : it.step.nameEn || it.step.nameAr}</td>
-                    <td className="px-3 py-2">
-                      <Waiting item={it} now={now} />
-                    </td>
-                    <td className="px-3 py-2">
-                      <Flags item={it} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {/* mobile cards */}
-          <ul className="space-y-2 md:hidden">
-            {items.map((it) => (
-              <li key={it.id}>
-                <Link href={`/requests/${it.id}`} className="block rounded-xl border border-slate-200 bg-white p-3 shadow-sm active:bg-slate-50">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-bold text-brand-800">{it.number}</span>
-                    <span className="font-semibold tabular-nums">{formatEgp(it.totalFinal, locale)}</span>
-                  </div>
-                  <div className="mt-1 text-sm text-slate-700">
-                    {it.submitterName} {it.summary?.vehicleNumber ? `· ${String(it.summary.vehicleNumber)}` : ''}
-                  </div>
-                  <div className="mt-1 text-xs text-slate-500">{locale === 'ar' ? it.step.nameAr : it.step.nameEn || it.step.nameAr}</div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <Waiting item={it} now={now} />
-                    <Flags item={it} />
-                  </div>
-                </Link>
-              </li>
-            ))}
-          </ul>
-          <Pager page={list.data?.page ?? page} pageSize={list.data?.pageSize ?? 25} total={list.data?.total ?? 0} onPage={setPage} />
-        </>
+        <DataTable
+          testId="inbox"
+          columns={columns}
+          rows={list.isLoading ? undefined : items}
+          rowKey={(it) => it.id}
+          loading={list.isFetching}
+          rowHref={(it) => `/requests/${it.id}`}
+          rowTone={(it) => (it.step.overdue ? 'danger' : it.lock ? 'muted' : 'default')}
+          page={list.data?.page ?? page}
+          pageSize={list.data?.pageSize ?? INBOX_PAGE_SIZE}
+          total={list.data?.total ?? 0}
+          onPageChange={setPage}
+          mobileCard={(it) => (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <Code className="font-medium text-link">{it.number}</Code>
+                <Money value={it.totalFinal} size="md" />
+              </div>
+              <div className="text-sm text-ink-2">
+                {it.submitterName}
+                {it.summary?.vehicleNumber ? (
+                  <>
+                    {' · '}
+                    <Code>{String(it.summary.vehicleNumber)}</Code>
+                  </>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-ink-2">{stepName(it)}</span>
+                <Waiting item={it} now={now} />
+                <Flags item={it} max={2} />
+              </div>
+            </div>
+          )}
+        />
       )}
-    </div>
+    </Page>
   );
 }
 
-function CounterChip({ label, count, overdue, active, onClick }: { label: string; count: number; overdue?: number; active: boolean; onClick: () => void }) {
-  const { t } = useTr();
+function RoleLabel({ label, count, overdue }: { label: string; count: number; overdue: number }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        'flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors',
-        active ? 'border-brand-700 bg-brand-700 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50',
-      )}
-    >
+    <span className="inline-flex items-center gap-1.5">
       <span>{label}</span>
-      <span className={cn('rounded-full px-2 text-xs tabular-nums', active ? 'bg-white/20' : 'bg-slate-100')}>{count}</span>
-      {!!overdue && (
-        <span className="rounded-full bg-red-100 px-2 text-xs text-red-800" title={t('requests.inbox.overdue')}>
-          {overdue}
-        </span>
-      )}
-    </button>
+      <span className="num text-xs text-brass-ink">{count}</span>
+      {overdue > 0 && <span className="h-1.5 w-1.5 rounded-full bg-danger" aria-hidden />}
+    </span>
   );
 }
 
 function Waiting({ item, now }: { item: QueueItem; now: number }) {
-  const { t, locale } = useTr();
+  const { locale } = useTr();
   const h = waitingHours(item.step.activatedAt, now);
   return (
-    <span className={cn('inline-flex items-center gap-1 text-xs', item.step.overdue ? 'font-semibold text-red-700' : 'text-slate-600')}>
-      <Clock className="h-3.5 w-3.5" aria-hidden />
-      {formatWaiting(h, locale)}
-      {item.step.overdue && <span>· {t('requests.inbox.overdue')}</span>}
+    <span className={cn('inline-flex items-center gap-1 text-xs', item.step.overdue ? 'font-medium text-danger' : 'text-ink-2')}>
+      <Icon as={Clock} size={16} />
+      <span className="num">{formatWaiting(h, locale)}</span>
     </span>
   );
 }
 
-function Flags({ item }: { item: QueueItem }) {
+function Flags({ item, max }: { item: QueueItem; max?: number }) {
   const { t } = useTr();
-  return (
-    <span className="inline-flex flex-wrap items-center gap-1">
-      {item.lock && (
-        <Badge tone="amber" className="gap-1">
-          <Lock className="h-3 w-3" aria-hidden />
-          {t('requests.lock.beingReviewedBy', { name: item.lock.userName })}
-        </Badge>
-      )}
-      {item.step.returnedFor && <Badge tone="blue">{t('requests.inbox.returned', { name: item.step.returnedFor })}</Badge>}
-      {item.hasDuplicateWarning && (
-        <Badge tone="red" className="gap-1">
-          <AlertTriangle className="h-3 w-3" aria-hidden />
-          {t('requests.inbox.duplicate')}
-        </Badge>
-      )}
-      {item.status === 'CORRECTION_REQUESTED' && <Badge tone="amber">{t('requests.status.CORRECTION_REQUESTED')}</Badge>}
-    </span>
-  );
+  const chips: JSX.Element[] = [];
+  if (item.step.overdue) {
+    chips.push(
+      <Badge key="overdue" tone="red" icon={<Icon as={AlertTriangle} size={14} />}>
+        {t('inbox.overdue')}
+      </Badge>,
+    );
+  }
+  if (item.lock) {
+    chips.push(
+      <Badge key="lock" tone="amber" icon={<Icon as={Lock} size={14} />}>
+        {t('requests.lock.lockedBy', { name: item.lock.userName })}
+      </Badge>,
+    );
+  }
+  if (item.step.returnedFor) {
+    chips.push(
+      <Badge key="ret" tone="blue">
+        {t('requests.inbox.returned', { name: item.step.returnedFor })}
+      </Badge>,
+    );
+  }
+  if (item.hasDuplicateWarning) {
+    chips.push(
+      <Badge key="dup" tone="red" icon={<Icon as={AlertTriangle} size={14} />}>
+        {t('requests.inbox.duplicate')}
+      </Badge>,
+    );
+  }
+  if (item.status === 'CORRECTION_REQUESTED') {
+    chips.push(
+      <Badge key="corr" tone="amber">
+        {t('requests.status.CORRECTION_REQUESTED')}
+      </Badge>,
+    );
+  }
+  return <span className="inline-flex flex-wrap items-center gap-1">{max ? chips.slice(0, max) : chips}</span>;
 }
