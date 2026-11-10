@@ -34,3 +34,5 @@
 - WP7, web: `POST /template-versions/:id/preview?format=html|pdf` is called with raw `fetch` (answers HTML/PDF, `api.post` would JSON.parse it). `PUT /workflow-versions/:id` and `PUT /template-versions/:id` are expected to accept the full step list / config exactly as `StepInput[]` / `TemplateConfig`.
 - WP7, web: reports `from`/`to` are sent as plain `YYYY-MM-DD` (Cairo days, per the contract); queue/requests/SAP filters send Cairo day boundaries as ISO instants. `LOCKED` errors are read from `error.details.userName`.
 P2-F3, apps/api/src/platform/auth.service.ts: Me now requires telegramLinked: boolean (A1 must add it in /auth/me; typecheck fails there until then)
+P2-W7, apps/web/src/components/ui/Fields.tsx: SearchInput does not forward data-testid; CrudPage wraps it in a div[data-testid="crud-search"] (e2e should target the input inside).
+P2-W3, features/requests/timelineModel.ts: DESIGN_SPEC names event type REQ_AT_STEP but the real arrival event is STEP_ACTIVATED; collapseEvents treats both as arrival.
