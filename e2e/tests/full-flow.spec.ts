@@ -152,3 +152,10 @@ test('correction round trip: supervisor asks for a new photo, driver fixes it in
   expect(after.myActions?.approve).toBe(true);
   expect(after.lines[0].attachments.filter((a: Any) => a.isCurrent)).toHaveLength(1);
 });
+
+test('metrics endpoint exposes posting counts', async () => {
+  const admin = await new Api('admin').login();
+  const r = await admin.raw('/metrics');
+  expect(r.status).toBe(200);
+  expect(await r.text()).toContain('dms_sap_postings');
+});
