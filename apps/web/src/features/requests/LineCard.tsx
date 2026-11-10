@@ -1,12 +1,11 @@
 'use client';
 
-import { AlertTriangle, Edit3, MessageSquareWarning } from 'lucide-react';
-import { Badge, Card } from '@/components/ui/Display';
-import { Button } from '@/components/ui/Button';
-import { formatDateTime, formatEgp, formatNumber } from '@/lib/format';
+import { AlertTriangle, FileText, MessageSquareWarning, PencilLine } from 'lucide-react';
+import { Badge, Banner, Button, DateText, Num, Money } from '@/components/ui';
+import { Icon } from '@/components/ui/Icon';
+import { cn } from '@/lib/cn';
 import { useTr } from '../common/useTr';
 import { categoryLabel, pricePerLiter } from './helpers';
-import { ImageGallery } from './ImageGallery';
 import type { CorrectionDto, LineDto } from '../types';
 
 export function LineCard({
@@ -16,6 +15,8 @@ export function LineCard({
   canCorrect,
   onEdit,
   onCorrect,
+  activeAttachmentId,
+  onSelectAttachment,
 }: {
   line: LineDto;
   corrections: CorrectionDto[];
@@ -23,131 +24,150 @@ export function LineCard({
   canCorrect: boolean;
   onEdit: () => void;
   onCorrect: (target: string) => void;
+  activeAttachmentId?: string | null;
+  onSelectAttachment?: (attachmentId: string) => void;
 }) {
   const { t, locale } = useTr();
   const catChanged = line.originalCategory.id !== line.category.id;
-  const amountChanged = line.originalAmount !== line.amount;
   const ppl = pricePerLiter(line);
   const open = corrections.filter((c) => c.status === 'OPEN' && (c.lineId === line.id || line.attachments.some((a) => a.id === c.attachmentId)));
   const extra = Object.entries(line.extraValues ?? {}).filter(([, v]) => v !== '' && v !== null);
+  const current = line.attachments.filter((a) => a.isCurrent);
+  const hasActive = !!activeAttachmentId && current.some((a) => a.id === activeAttachmentId);
 
   return (
-    <Card padded className={line.warnings.length > 0 || open.length > 0 ? 'border-amber-300' : ''}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">#{line.lineNo}</span>
-            <h4 className="font-bold text-slate-900">{categoryLabel(line.category, locale)}</h4>
-            {catChanged && (
-              <Badge tone="amber">
-                {t('requests.line.reclassifiedFrom', { name: categoryLabel(line.originalCategory, locale) })}
-              </Badge>
-            )}
-            {line.isEdited && <Badge tone="purple">{t('requests.line.edited')}</Badge>}
-          </div>
-          {line.lineDate && <p className="mt-0.5 text-xs text-slate-500">{formatDateTime(line.lineDate).slice(0, 10)}</p>}
-        </div>
-        <div className="text-end">
-          {amountChanged ? (
-            <>
-              <div className="text-xs text-slate-500 line-through tabular-nums" title={t('requests.line.driverAmount')}>
-                {formatEgp(line.originalAmount, locale)}
-              </div>
-              <div className="text-lg font-bold text-purple-800 tabular-nums" title={t('requests.line.correctedAmount')}>
-                {formatEgp(line.amount, locale)}
-              </div>
-            </>
-          ) : (
-            <div className="text-lg font-bold tabular-nums">{formatEgp(line.amount, locale)}</div>
-          )}
-        </div>
+    <div
+      data-testid={'line-' + line.lineNo}
+      className={cn('border-t border-hairline px-5 py-4 first:border-t-0', hasActive && 'border-s-[3px] border-s-brass bg-primary-tint/40')}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone="gray" size="sm">
+          <span className="num">#{line.lineNo}</span>
+        </Badge>
+        <h4 className="text-base font-medium text-ink">{categoryLabel(line.category, locale)}</h4>
+        {catChanged && (
+          <Badge tone="brass" size="sm">
+            {t('requests.line.reclassifiedFrom', { name: categoryLabel(line.originalCategory, locale) })}
+          </Badge>
+        )}
+        <span className="ms-auto">
+          <Money size="lg" value={line.amount} original={line.originalAmount} />
+        </span>
       </div>
 
-      <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm sm:grid-cols-4">
-        {line.quantity && <Info label={t('requests.line.quantity')} value={formatNumber(line.quantity)} />}
-        {ppl !== null && <Info label={t('requests.line.pricePerLiter')} value={formatNumber(ppl)} />}
+      <p className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-ink-3">
+        {line.lineDate && <DateText value={line.lineDate} />}
+        {line.quantity && (
+          <span>
+            · {t('requests.line.quantity')} <Num value={line.quantity} />
+          </span>
+        )}
+        {ppl !== null && (
+          <span>
+            · {t('requests.line.pricePerLiter')} <Num value={ppl} />
+          </span>
+        )}
         {extra.map(([k, v]) => (
-          <Info key={k} label={k} value={String(v)} />
+          <span key={k}>
+            · {k} <bdi>{String(v)}</bdi>
+          </span>
         ))}
-        {line.note && <Info label={t('requests.line.note')} value={line.note} />}
-      </dl>
+        {line.note && (
+          <span dir="auto">
+            · {t('requests.line.note')}: {line.note}
+          </span>
+        )}
+      </p>
 
       {line.warnings.length > 0 && (
-        <ul className="mt-2 space-y-1">
+        <div className="mt-2 flex flex-wrap gap-1.5">
           {line.warnings.map((w, i) => (
-            <li key={w.code + i} className="flex items-start gap-1.5 rounded bg-amber-50 px-2 py-1 text-xs text-amber-900">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+            <Badge key={w.code + i} tone="amber" icon={<Icon as={AlertTriangle} size={14} />}>
               {locale === 'ar' ? w.messageAr : w.messageEn || w.messageAr}
-            </li>
+            </Badge>
           ))}
-        </ul>
+        </div>
       )}
 
       {open.length > 0 && (
-        <ul className="mt-2 space-y-1">
+        <div className="mt-2 space-y-1.5">
           {open.map((c) => (
-            <li key={c.id} className="rounded bg-orange-50 px-2 py-1 text-xs text-orange-900">
-              {t('requests.line.openCorrection')}: {c.comment}
-            </li>
+            <Banner key={c.id} tone="warning">
+              <span dir="auto">
+                {t('requests.line.openCorrection')}: {c.comment}
+              </span>
+            </Banner>
           ))}
-        </ul>
+        </div>
       )}
 
-      <div className="mt-3">
-        <ImageGallery
-          attachments={line.attachments}
-          renderActions={
-            canCorrect
-              ? (a) =>
-                  a.isCurrent ? (
-                    <button type="button" onClick={() => onCorrect(`att:${a.id}`)} className="mt-0.5 text-xs text-amber-800 underline">
-                      {t('requests.line.askFix')}
-                    </button>
-                  ) : null
-              : undefined
-          }
-        />
-      </div>
+      {current.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {current.map((a, idx) => {
+            const isPdf = a.mimeType === 'application/pdf';
+            const active = a.id === activeAttachmentId;
+            return (
+              <button
+                key={a.id}
+                type="button"
+                data-testid="line-thumb"
+                aria-pressed={active}
+                aria-label={`${t('requests.line.n', { n: line.lineNo })} · ${idx + 1}`}
+                onClick={() => onSelectAttachment?.(a.id)}
+                className={cn(
+                  'flex h-14 w-14 items-center justify-center overflow-hidden rounded border border-hairline bg-surface-2',
+                  active && 'ring-2 ring-primary',
+                )}
+              >
+                {isPdf ? (
+                  <Icon as={FileText} size={24} className="text-ink-3" />
+                ) : (
+                  <img src={a.thumbUrl ?? a.url} alt="" className="h-full w-full object-cover" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {(canEdit || canCorrect) && (
+        <div className="mt-3 flex flex-wrap justify-end gap-2">
+          {canEdit && (
+            <Button size="sm" variant="ghost" data-testid={'line-edit-' + line.lineNo} icon={<Icon as={PencilLine} size={16} />} onClick={onEdit}>
+              {t('requests.line.editBtn')}
+            </Button>
+          )}
+          {canCorrect && (
+            <Button
+              size="sm"
+              variant="ghost"
+              data-testid={'line-correct-' + line.lineNo}
+              icon={<Icon as={MessageSquareWarning} size={16} />}
+              onClick={() => onCorrect(`line:${line.id}`)}
+            >
+              {t('requests.line.askFixLine')}
+            </Button>
+          )}
+        </div>
+      )}
 
       {line.edits.length > 0 && (
         <details className="mt-3 text-sm">
-          <summary className="cursor-pointer font-semibold text-slate-700">{t('requests.line.edits', { n: line.edits.length })}</summary>
-          <ul className="mt-1 space-y-1 text-xs text-slate-600">
+          <summary className="cursor-pointer font-medium text-ink-2">{t('requests.line.history', { n: line.edits.length })}</summary>
+          <ul className="mt-2 space-y-1.5 text-xs text-ink-2">
             {line.edits.map((e) => (
-              <li key={e.id} className="rounded bg-slate-50 p-2">
-                <b>{t(`requests.editField.${e.field}`)}</b>: {e.oldLabel ?? e.oldValue ?? '—'} → {e.newLabel ?? e.newValue ?? '—'}
-                <span className="block text-slate-500">
-                  {e.reason} · {e.editedByName ?? t(e.source === 'SUBMITTER_CORRECTION' ? 'requests.line.byDriver' : 'requests.timeline.unknown')} · {formatDateTime(e.createdAt)}
+              <li key={e.id} className="rounded bg-surface-2 p-2">
+                <b>{t(`requests.editField.${e.field}`)}</b>: <bdi className="num">{e.oldLabel ?? e.oldValue ?? '—'}</bdi> {'→'}{' '}
+                <bdi className="num">{e.newLabel ?? e.newValue ?? '—'}</bdi>
+                <span className="block text-ink-3">
+                  <q dir="auto">{e.reason}</q> · {e.editedByName ?? t(e.source === 'SUBMITTER_CORRECTION' ? 'requests.line.byDriver' : 'requests.timeline.unknown')} ·{' '}
+                  <DateText value={e.createdAt} mode="dayTime" />
                 </span>
               </li>
             ))}
           </ul>
         </details>
       )}
-
-      {(canEdit || canCorrect) && (
-        <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
-          {canEdit && (
-            <Button size="sm" variant="secondary" icon={<Edit3 className="h-4 w-4" />} onClick={onEdit}>
-              {t('requests.line.editBtn')}
-            </Button>
-          )}
-          {canCorrect && (
-            <Button size="sm" variant="secondary" icon={<MessageSquareWarning className="h-4 w-4" />} onClick={() => onCorrect(`line:${line.id}`)}>
-              {t('requests.line.askFixLine')}
-            </Button>
-          )}
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-xs text-slate-500">{label}</dt>
-      <dd className="font-semibold tabular-nums">{value}</dd>
     </div>
   );
 }

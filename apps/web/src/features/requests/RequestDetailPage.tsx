@@ -1,28 +1,53 @@
 'use client';
 
-import Link from 'next/link';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowRight, Download, FileText, Lock } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Download, FileText, Lock, MessageSquareWarning } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
-import { formatDateTime, formatEgp } from '@/lib/format';
-import { Badge, Card, ErrorBlock, LoadingBlock, PageHeader } from '@/components/ui/Display';
-import { Button } from '@/components/ui/Button';
-import { useToast } from '@/components/ui/Toast';
+import { useAuth } from '@/lib/auth';
+import { formatCount, formatDay, formatTime, ltrIsolate } from '@/lib/format';
+import { useMediaQuery } from '@/lib/useMediaQuery';
+import {
+  Avatar,
+  Badge,
+  Banner,
+  Button,
+  Card,
+  Code,
+  DateText,
+  DL,
+  DLItem,
+  ErrorBlock,
+  Money,
+  Num,
+  Page,
+  PageHeader,
+  Seal,
+  SkeletonCard,
+  StatusChip,
+  useToast,
+  type SealKind,
+} from '@/components/ui';
+import { Icon } from '@/components/ui/Icon';
 import { useTr } from '../common/useTr';
 import { ActionPanel } from './ActionPanel';
 import { CorrectionModal } from './CorrectionModal';
 import { EditLineModal } from './EditLineModal';
+import { EvidenceViewer } from './EvidenceViewer';
+import { buildEvidence } from './evidence';
 import { LineCard } from './LineCard';
-import { ProgressBar } from './ProgressBar';
+import { RouteStepper } from './RouteStepper';
 import { Timeline } from './Timeline';
-import { odometerInfo, statusTone } from './helpers';
+import { odometerInfo } from './helpers';
 import type { LineDto, RequestDetail } from '../types';
 
 export function RequestDetailPage({ id }: { id: string }) {
   const { t, locale } = useTr();
+  const { me } = useAuth();
   const toast = useToast();
   const qc = useQueryClient();
+  const xl = useMediaQuery('(min-width: 1280px)');
+  const md = useMediaQuery('(min-width: 768px)');
   const q = useQuery({
     queryKey: ['request', id],
     queryFn: () => api.get<RequestDetail>(`/requests/${id}`),
@@ -37,10 +62,36 @@ export function RequestDetailPage({ id }: { id: string }) {
   const [editLine, setEditLine] = useState<LineDto | null>(null);
   const [corr, setCorr] = useState<{ open: boolean; target?: string }>({ open: false });
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [seal, setSeal] = useState<{ kind: SealKind; at: number } | null>(null);
+  const [moreInfo, setMoreInfo] = useState(false);
 
-  if (q.isLoading) return <LoadingBlock />;
-  if (q.isError || !q.data) return <ErrorBlock message={errorMessage(q.error)} />;
+  // The seal stays until the next data load completes, plus 1200ms.
+  const sealAt = seal?.at ?? 0;
+  useEffect(() => {
+    if (!seal || q.isFetching || q.dataUpdatedAt <= sealAt) return;
+    const timer = setTimeout(() => setSeal(null), 1200);
+    return () => clearTimeout(timer);
+  }, [seal, sealAt, q.isFetching, q.dataUpdatedAt]);
+
   const d = q.data;
+  const items = useMemo(() => (d ? buildEvidence(d.lines, locale) : []), [d, locale]);
+
+  if (q.isLoading) {
+    return (
+      <Page testId="page-request-detail" width="wide">
+        <SkeletonCard lines={6} />
+      </Page>
+    );
+  }
+  if (q.isError || !d) {
+    return (
+      <Page testId="page-request-detail" width="wide">
+        <ErrorBlock message={errorMessage(q.error)} onRetry={() => void q.refetch()} />
+      </Page>
+    );
+  }
+
   const my = d.myActions;
   const odo = odometerInfo(d);
   const m = d.module as Record<string, unknown>;
@@ -49,8 +100,12 @@ export function RequestDetailPage({ id }: { id: string }) {
     toast.error(e);
     reload();
   };
-  const originalTotal = d.totals.original;
-  const finalTotal = d.totals.final;
+  const activeAttachmentId = activeId ?? items[0]?.attachment.id ?? null;
+  const lockedByOther = !!d.lock && d.lock.userId !== me?.id;
+  const vehicleNumber = String(m.vehicleNumber ?? '');
+  const vehicleType = String(m.vehicleTypeName ?? m.vehicleTypeCode ?? '');
+  const costCenter = String(m.costCenterCode ?? '');
+  const channel = d.channel === 'TELEGRAM' ? 'Telegram' : 'Web';
 
   const openPdf = async (download: boolean) => {
     setPdfBusy(true);
@@ -75,19 +130,82 @@ export function RequestDetailPage({ id }: { id: string }) {
     }
   };
 
+  const staticSeal: SealKind | null = d.status === 'PAID' ? 'paid' : d.status === 'REJECTED' ? 'rejected' : d.status === 'APPROVED' ? 'approved' : null;
+  const sealSub = d.status === 'PAID' ? formatDay(d.paidAt, locale, 'short') : undefined;
+  const sealSize = md ? 104 : 76;
+
+  const viewer = (variant: 'panel' | 'carousel') => (
+    <EvidenceViewer
+      items={items}
+      activeId={activeAttachmentId}
+      onActiveChange={setActiveId}
+      variant={variant}
+      className={variant === 'panel' ? 'sticky top-[84px] h-[calc(100dvh-84px-104px)]' : undefined}
+      renderActions={
+        my?.requestCorrection
+          ? (item) => (
+              <button
+                type="button"
+                onClick={() => setCorr({ open: true, target: `att:${item.attachment.id}` })}
+                className="inline-flex items-center gap-1 text-xs text-viewer-ink underline"
+              >
+                <Icon as={MessageSquareWarning} size={14} /> {t('requests.line.askFix')}
+              </button>
+            )
+          : undefined
+      }
+    />
+  );
+
+  const fullDetails = (
+    <DL cols={3}>
+      <DLItem label={t('requests.header.driver')}>
+        <span className="inline-flex items-center gap-2">
+          <Avatar name={submitterName} size={24} />
+          {submitterName || '—'}
+        </span>
+      </DLItem>
+      <DLItem label={t('requests.header.vehicle')}>
+        {vehicleNumber ? <Code>{vehicleNumber}</Code> : '—'}
+        {vehicleType && <div className="text-xs font-normal text-ink-3">{vehicleType}</div>}
+      </DLItem>
+      <DLItem label={t('requests.header.costCenter')}>{costCenter ? <Code>{costCenter}</Code> : '—'}</DLItem>
+      <DLItem label={t('requests.header.submittedAt')}>
+        <DateText value={d.submittedAt} mode="long" /> <span className="num text-ink-3">{formatTime(d.submittedAt)}</span>
+      </DLItem>
+      <DLItem label={t('requests.header.channel')}>{channel}</DLItem>
+      {d.paidAt && (
+        <DLItem label={t('requests.header.paidAt')}>
+          <DateText value={d.paidAt} mode="dayTime" />
+        </DLItem>
+      )}
+      <DLItem label={t('requests.header.odometer')}>
+        <Num value={odo.current} />
+        {odo.last !== null && (
+          <div className={odo.lower ? 'text-xs font-medium text-danger' : 'text-xs font-normal text-ink-3'}>
+            {t('requests.header.lastOdometer', { n: ltrIsolate(formatCount(odo.last)) })}
+            {odo.delta !== null && ` ${ltrIsolate(`(${odo.delta >= 0 ? '+' : ''}${formatCount(odo.delta)})`)}`}
+            {odo.lower && ` — ${t('requests.header.odometerLower')}`}
+          </div>
+        )}
+      </DLItem>
+    </DL>
+  );
+
   return (
-    <div className="space-y-4">
-      <Link href="/inbox" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800">
-        <ArrowRight className="h-4 w-4 rtl:rotate-0 ltr:rotate-180" aria-hidden /> {t('requests.back')}
-      </Link>
+    <Page testId="page-request-detail" width="wide" className={my ? 'pb-24' : undefined}>
       <PageHeader
+        back={{ href: '/inbox', label: t('requests.back') }}
         title={
           <span className="flex flex-wrap items-center gap-2">
-            {d.number}
-            <Badge tone={statusTone(d.status)}>{t(`requests.status.${d.status}`)}</Badge>
+            <Code className="text-2xl font-medium">
+              <span data-testid="request-number">{d.number}</span>
+            </Code>
+            <span data-testid="request-status">
+              <StatusChip kind="request" status={d.status} label={t(`requests.status.${d.status}`)} />
+            </span>
             {d.hasDuplicateWarning && (
-              <Badge tone="red" className="gap-1">
-                <AlertTriangle className="h-3 w-3" aria-hidden />
+              <Badge tone="red" icon={<Icon as={AlertTriangle} size={14} />}>
                 {t('requests.inbox.duplicate')}
               </Badge>
             )}
@@ -96,11 +214,17 @@ export function RequestDetailPage({ id }: { id: string }) {
         subtitle={locale === 'ar' ? d.requestType.nameAr : d.requestType.nameEn}
         actions={
           <>
-            <Button variant="secondary" icon={<FileText className="h-4 w-4" />} loading={pdfBusy} onClick={() => openPdf(false)}>
+            <Button
+              variant="secondary"
+              data-testid="pdf-preview"
+              icon={<Icon as={FileText} size={16} />}
+              loading={pdfBusy}
+              onClick={() => openPdf(false)}
+            >
               {d.finalPdf ? t('requests.pdf.final') : t('requests.pdf.preview')}
             </Button>
             {d.finalPdf && (
-              <Button variant="secondary" icon={<Download className="h-4 w-4" />} onClick={() => openPdf(true)}>
+              <Button variant="secondary" data-testid="pdf-download" icon={<Icon as={Download} size={16} />} onClick={() => openPdf(true)}>
                 {t('requests.pdf.download')}
               </Button>
             )}
@@ -108,80 +232,101 @@ export function RequestDetailPage({ id }: { id: string }) {
         }
       />
 
-      {d.lock && (
-        <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          <Lock className="h-4 w-4" aria-hidden /> {t('requests.lock.beingReviewedBy', { name: d.lock.userName })}
-        </div>
-      )}
-      {d.status === 'REJECTED' && (
-        <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900">
-          <b>{t('requests.rejectedReason')}:</b> {d.rejectionReason}
+      {(lockedByOther || d.status === 'REJECTED' || d.status === 'CORRECTION_REQUESTED') && (
+        <div className="space-y-2">
+          {lockedByOther && d.lock && (
+            <Banner tone="warning" icon={<Icon as={Lock} size={18} />}>
+              {t('requests.lock.beingReviewedBy', { name: d.lock.userName })}
+            </Banner>
+          )}
+          {d.status === 'REJECTED' && (
+            <Banner tone="danger">
+              <b>{t('requests.rejectedReason')}:</b> <span dir="auto">{d.rejectionReason}</span>
+            </Banner>
+          )}
+          {d.status === 'CORRECTION_REQUESTED' && <Banner tone="warning">{t('requests.banner.awaitingDriver')}</Banner>}
         </div>
       )}
 
-      <Card title={t('requests.progress.title')}>
-        <ProgressBar steps={d.steps} />
-      </Card>
-
-      <Card title={t('requests.header.title')}>
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm md:grid-cols-4">
-          <Field label={t('requests.header.driver')} value={submitterName} />
-          <Field label={t('requests.header.vehicle')} value={String(m.vehicleNumber ?? '')} />
-          <Field label={t('requests.header.vehicleType')} value={String(m.vehicleTypeName ?? m.vehicleTypeCode ?? '')} />
-          <Field label={t('requests.header.costCenter')} value={String(m.costCenterCode ?? '')} />
-          <Field label={t('requests.header.submittedAt')} value={formatDateTime(d.submittedAt)} />
-          <Field label={t('requests.header.channel')} value={d.channel === 'TELEGRAM' ? 'Telegram' : 'Web'} />
-          {d.paidAt && <Field label={t('requests.header.paidAt')} value={formatDateTime(d.paidAt)} />}
-          <div>
-            <dt className="text-xs text-slate-500">{t('requests.header.odometer')}</dt>
-            <dd className="font-semibold tabular-nums">
-              {odo.current ?? '—'}
-              {odo.last !== null && (
-                <span className={odo.lower ? 'ms-2 text-xs font-bold text-red-700' : 'ms-2 text-xs font-normal text-slate-500'}>
-                  {t('requests.header.lastOdometer', { n: odo.last })}
-                  {odo.delta !== null && ` (${odo.delta >= 0 ? '+' : ''}${odo.delta})`}
-                  {odo.lower && ` — ${t('requests.header.odometerLower')}`}
+      <div className="grid gap-6 xl:grid-cols-12">
+        <div className="min-w-0 space-y-6 xl:col-span-7">
+          <Card accent="rule" className="relative">
+            <div className="grid gap-6 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+              <div className="space-y-2">
+                <div className="text-13 text-ink-2">{t('requests.header.finalTotal')}</div>
+                <span data-testid="request-total" className="block">
+                  <Money size="hero" value={d.totals.final} original={d.totals.original} />
                 </span>
-              )}
-            </dd>
-          </div>
-          <div className="col-span-2 md:col-span-4 flex flex-wrap items-baseline gap-x-6 gap-y-1 border-t border-slate-100 pt-3">
-            <div>
-              <span className="text-xs text-slate-500">{t('requests.header.originalTotal')} </span>
-              <span className={`tabular-nums ${originalTotal !== finalTotal ? 'line-through text-slate-500' : 'font-semibold'}`}>{formatEgp(originalTotal, locale)}</span>
+              </div>
+              <div className="pb-20 md:pb-0">
+                {md || moreInfo ? (
+                  fullDetails
+                ) : (
+                  <div className="space-y-1 text-sm text-ink-2">
+                    <div>
+                      {[submitterName, vehicleNumber, costCenter].filter(Boolean).map((x, i) => (
+                        <span key={i}>
+                          {i > 0 && ' · '}
+                          <bdi>{x}</bdi>
+                        </span>
+                      ))}
+                    </div>
+                    <div className="text-xs text-ink-3">
+                      <DateText value={d.submittedAt} mode="dayTime" /> · {channel}
+                    </div>
+                  </div>
+                )}
+                {!md && (
+                  <button type="button" aria-expanded={moreInfo} onClick={() => setMoreInfo((v) => !v)} className="mt-2 inline-flex items-center gap-1 text-sm text-link">
+                    {t('requests.header.more')}
+                    <Icon as={ChevronDown} size={16} className={moreInfo ? 'rotate-180' : ''} />
+                  </button>
+                )}
+              </div>
             </div>
-            {originalTotal !== finalTotal && (
-              <div>
-                <span className="text-xs text-slate-500">{t('requests.header.finalTotal')} </span>
-                <span className="text-lg font-bold text-purple-800 tabular-nums">{formatEgp(finalTotal, locale)}</span>
+            {(seal || staticSeal) && (
+              <div className="pointer-events-none absolute end-4 top-4 md:bottom-4 md:top-auto">
+                {seal ? <Seal kind={seal.kind} animate size={sealSize} /> : staticSeal && <Seal kind={staticSeal} sub={sealSub} size={sealSize} />}
               </div>
             )}
-          </div>
-        </dl>
-      </Card>
+          </Card>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="space-y-3 lg:col-span-2">
-          <h2 className="text-base font-bold text-slate-800">{t('requests.lines.title', { n: d.lines.length })}</h2>
-          {d.lines.map((l) => (
-            <LineCard
-              key={l.id}
-              line={l}
-              corrections={d.corrections}
-              canEdit={!!my && (my.editAmounts || my.reclassify)}
-              canCorrect={!!my?.requestCorrection}
-              onEdit={() => setEditLine(l)}
-              onCorrect={(target) => setCorr({ open: true, target })}
-            />
-          ))}
-        </div>
-        <div className="space-y-4">
-          <ActionPanel detail={d} onChanged={reload} onOpenCorrection={() => setCorr({ open: true })} />
+          {!xl && viewer('carousel')}
+
+          <Card title={t('requests.progress.title')}>
+            {md ? <RouteStepper steps={d.steps} /> : <RouteStepper steps={d.steps} compact />}
+          </Card>
+
+          <Card title={t('requests.lines.title', { n: d.lines.length })} padded={false}>
+            {d.lines.map((l) => (
+              <LineCard
+                key={l.id}
+                line={l}
+                corrections={d.corrections}
+                canEdit={!!my && (my.editAmounts || my.reclassify)}
+                canCorrect={!!my?.requestCorrection}
+                activeAttachmentId={activeAttachmentId}
+                onSelectAttachment={setActiveId}
+                onEdit={() => setEditLine(l)}
+                onCorrect={(target) => setCorr({ open: true, target })}
+              />
+            ))}
+          </Card>
+
           <Card title={t('requests.timeline.title')}>
             <Timeline events={d.events} corrections={d.corrections} />
           </Card>
         </div>
+
+        {xl && <div className="xl:col-span-5">{viewer('panel')}</div>}
       </div>
+
+      <ActionPanel
+        detail={d}
+        onChanged={reload}
+        onOpenCorrection={() => setCorr({ open: true })}
+        onSealed={(kind) => setSeal({ kind, at: Date.now() })}
+      />
 
       {my && (
         <>
@@ -210,15 +355,6 @@ export function RequestDetailPage({ id }: { id: string }) {
           />
         </>
       )}
-    </div>
-  );
-}
-
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-xs text-slate-500">{label}</dt>
-      <dd className="font-semibold">{value || '—'}</dd>
-    </div>
+    </Page>
   );
 }
