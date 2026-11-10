@@ -46,7 +46,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: M
 export interface ConfirmDialogProps {
   open: boolean;
   onClose: () => void;
-  onConfirm: () => void | Promise<void>;
+  onConfirm: () => unknown;
   title?: ReactNode;
   message?: ReactNode;
   confirmLabel?: string;
