@@ -92,6 +92,7 @@ export async function expireExports(prisma: PrismaClient, storage: StorageAdapte
 // ---------- builders ----------
 
 const safeSeg = (s: string): string => {
+  // eslint-disable-next-line no-control-regex
   const t = s.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/\s+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '').slice(0, 60);
   return !t || /^\.+$/.test(t) ? '_' : t;
 };

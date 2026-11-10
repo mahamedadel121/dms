@@ -38,7 +38,7 @@ import {
   type Condition,
   type FieldDefinition,
   type TemplateConfig,
-} from '../../shared/src/index'; // relative: @dms/shared is not a dependency of @dms/db (see CONTRACT_NOTES)
+} from '@dms/shared';
 
 export const DEMO_PASSWORD = 'Passw0rd!';
 
