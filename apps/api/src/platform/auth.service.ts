@@ -51,6 +51,7 @@ export class AuthService {
       permissions: au.permissions,
       hasSignature: sig > 0,
       mustChangePassword: user.mustChangePassword,
+      telegramLinked: user.telegramUserId !== null,
     };
   }
 

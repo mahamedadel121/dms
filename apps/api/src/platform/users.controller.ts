@@ -2,7 +2,8 @@ import { Body, Controller, Get, HttpCode, Param, Patch, Post, Put, Query, Req } 
 import type { Prisma } from '@prisma/client';
 import { audit } from '@dms/core/audit';
 import { DomainError } from '@dms/core/errors';
-import type { AuthUser } from '@dms/core/rbac';
+import { hasPermission, type AuthUser } from '@dms/core/rbac';
+import { buildLinkInfo } from '@dms/core/telegram';
 import {
   platformPageQuerySchema,
   resetPasswordSchema,
@@ -11,6 +12,7 @@ import {
   userUpdateSchema,
   type Paged,
   type PageQuery,
+  type TelegramLinkDto,
   type ResetPasswordInput,
   type ResetPasswordResult,
   type UserCreateInput,
@@ -19,7 +21,7 @@ import {
   type UserUpdateInput,
 } from '@dms/shared';
 import { actorFromReq } from '../common/actor';
-import { CurrentUser, RequirePermission } from '../common/decorators';
+import { AuthOnly, CurrentUser, RequirePermission } from '../common/decorators';
 import { iso, orderByOf, pageArgs, paged } from '../common/paging';
 import { generatePassword, hashPassword } from '../common/password';
 import { ZodPipe } from '../common/zod.pipe';
@@ -250,5 +252,45 @@ export class UsersController {
       meta: { revoked: r.count },
     });
     return { revoked: r.count };
+  }
+
+  /** Self or `users.manage`. */
+  private async authorizeLink(id: string, me: AuthUser): Promise<void> {
+    if (id !== me.id && !hasPermission(me, 'users.manage')) throw new DomainError('FORBIDDEN', 'Missing permission');
+  }
+
+  @AuthOnly()
+  @Post(':id/telegram-link')
+  @HttpCode(200)
+  async issueTelegramLink(@Param('id') id: string, @CurrentUser() me: AuthUser, @Req() req: Req_): Promise<TelegramLinkDto> {
+    await this.authorizeLink(id, me);
+    const u = await this.prisma.user.findUnique({ where: { id } });
+    if (!u || !u.isActive) throw new DomainError('NOT_FOUND', 'User not found');
+    if (u.telegramUserId !== null) throw new DomainError('INVALID_STATE', 'A Telegram account is already linked');
+    const info = buildLinkInfo({ kind: 'u', id });
+    await audit(this.prisma, { actor: actorFromReq(req), action: 'user.telegram_link_issued', entityType: 'User', entityId: id });
+    return info;
+  }
+
+  @AuthOnly()
+  @Post(':id/telegram-unlink')
+  @HttpCode(200)
+  async telegramUnlink(@Param('id') id: string, @CurrentUser() me: AuthUser, @Req() req: Req_) {
+    await this.authorizeLink(id, me);
+    const u = await this.prisma.user.findUnique({ where: { id } });
+    if (!u) throw new DomainError('NOT_FOUND', 'User not found');
+    if (u.telegramUserId === null) throw new DomainError('INVALID_STATE', 'No Telegram account is linked');
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id }, data: { telegramUserId: null, telegramChatId: null } });
+      await audit(tx, {
+        actor: actorFromReq(req),
+        action: 'user.telegram_unlink',
+        entityType: 'User',
+        entityId: id,
+        before: { telegramUserId: u.telegramUserId?.toString() },
+        after: { telegramUserId: null },
+      });
+    });
+    return { ok: true };
   }
 }

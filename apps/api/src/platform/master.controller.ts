@@ -19,6 +19,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { audit } from '@dms/core/audit';
 import { DomainError } from '@dms/core/errors';
+import { buildLinkInfo } from '@dms/core/telegram';
 import {
   MASTER_RESOURCES,
   masterListQuerySchema,
@@ -26,6 +27,7 @@ import {
   type MasterListQuery,
   type MasterResource,
   type Paged,
+  type TelegramLinkDto,
 } from '@dms/shared';
 import { actorFromReq } from '../common/actor';
 import { RequirePermission } from '../common/decorators';
@@ -113,6 +115,19 @@ export const MASTER_CONTROLLERS: Type<unknown>[] = MASTER_RESOURCES.map(createMa
 @Controller('submitters')
 export class SubmitterExtrasController {
   constructor(private readonly prisma: PrismaService) {}
+
+  /** Issues a one-time link the driver sends to the bot (admin-verified link; the contact flow is unchanged). */
+  @RequirePermission('submitters.telegram_link')
+  @Post(':id/telegram-link')
+  @HttpCode(200)
+  async issueLink(@Param('id') id: string, @Req() req: Req_): Promise<TelegramLinkDto> {
+    const s = await this.prisma.submitter.findUnique({ where: { id } });
+    if (!s || !s.isActive) throw new DomainError('NOT_FOUND', 'Driver not found');
+    if (s.telegramUserId !== null) throw new DomainError('INVALID_STATE', 'A Telegram account is already linked');
+    const info = buildLinkInfo({ kind: 'd', id });
+    await audit(this.prisma, { actor: actorFromReq(req), action: 'submitter.telegram_link_issued', entityType: 'Submitter', entityId: id });
+    return info;
+  }
 
   /** Frees the driver's Telegram link so the same or another account can link again through the bot. */
   @RequirePermission('submitters.telegram_link')

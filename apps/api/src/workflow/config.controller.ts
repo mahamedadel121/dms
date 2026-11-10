@@ -21,16 +21,23 @@ import { audit, toJsonValue } from '@dms/core/audit';
 import {
   createDraftVersion,
   deleteDraftVersion,
+  listModules,
   publishWorkflowVersion,
   saveDraftVersion,
   simulateWorkflow,
 } from '@dms/core/engine';
 import { DomainError } from '@dms/core/errors';
 import { sniffMime } from '@dms/core/media';
+import { DEFAULT_TEMPLATE_CONFIG } from '@dms/core/pdf';
 import type { AuthUser } from '@dms/core/rbac';
 import { getStorage, signFileUrl } from '@dms/core/storage';
 import {
+  EXPENSE_RESERVED_HEADER_KEYS,
   createVersionBodySchema,
+  fieldDefinitionIssues,
+  lineCategoryOrderSchema,
+  templateCreateSchema,
+  templateUpdateSchema,
   lineCategoryInputSchema,
   lineCategoryUpdateSchema,
   requestTypeInputSchema,
@@ -40,6 +47,12 @@ import {
   templateConfigSchema,
   templateVersionBodySchema,
   type LineCategoryInput,
+  type LineCategoryOrderBody,
+  type RequestModuleDto,
+  type RequestTypeStatsDto,
+  type TemplateCreateBody,
+  type TemplateUpdateBody,
+  type FieldDefinition,
   type RequestTypeInput,
   type SaveWorkflowVersionBody,
   type SimulateBody,
@@ -73,7 +86,32 @@ function catDto(c: Prisma.LineCategoryGetPayload<{ include: { approvalRoles: tru
     maxAttachments: c.maxAttachments,
     maxAmountWarning: dstr(c.maxAmountWarning),
     approvalRoleIds: c.approvalRoles.map((r) => r.roleId),
+    allowedMimeTypes: c.allowedMimeTypes,
   };
+}
+function checkHeaderFields(fields: FieldDefinition[], moduleKey: string | null | undefined): void {
+  const issues = fieldDefinitionIssues(fields, moduleKey === 'expense' ? EXPENSE_RESERVED_HEADER_KEYS : []);
+  if (issues.length) throw new DomainError('VALIDATION', 'Invalid header fields', undefined, issues);
+}
+function checkModuleKey(moduleKey: string | null | undefined): void {
+  if (moduleKey && !listModules().includes(moduleKey)) throw new DomainError('VALIDATION', `Unknown module key "${moduleKey}"`);
+}
+function checkCategory(
+  b: { extraFields?: FieldDefinition[]; quantityFieldKey?: string | null; minAttachments?: number; maxAttachments?: number },
+  cur?: { extraFields: unknown; quantityFieldKey: string | null; minAttachments: number; maxAttachments: number },
+): void {
+  const extra = (b.extraFields ?? (cur?.extraFields as FieldDefinition[] | undefined) ?? []) as FieldDefinition[];
+  if (b.extraFields !== undefined) {
+    const issues = fieldDefinitionIssues(b.extraFields);
+    if (issues.length) throw new DomainError('VALIDATION', 'Invalid extra fields', undefined, issues);
+  }
+  const q = b.quantityFieldKey !== undefined ? b.quantityFieldKey : (cur?.quantityFieldKey ?? null);
+  if (q && !extra.some((f) => f.key === q && f.type === 'number')) {
+    throw new DomainError('VALIDATION', 'quantityFieldKey must be the key of a number field in extraFields');
+  }
+  const min = b.minAttachments ?? cur?.minAttachments ?? 1;
+  const max = b.maxAttachments ?? cur?.maxAttachments ?? 10;
+  if (min > max) throw new DomainError('VALIDATION', 'minAttachments must not exceed maxAttachments');
 }
 function typeDto(t: Prisma.RequestTypeGetPayload<{ include: { workflow: true; lineCategories: { include: { approvalRoles: true } } } }>, withCats: boolean) {
   return {
@@ -101,9 +139,31 @@ export class RequestTypesController {
 
   @Get()
   @AuthOnly()
-  async list() {
+  async list(@Query('withStats') withStats?: string) {
     const rows = await this.prisma.requestType.findMany({ include: typeInclude, orderBy: { code: 'asc' } });
-    return rows.map((r) => typeDto(r, false));
+    if (withStats !== '1' && withStats !== 'true') return rows.map((r) => typeDto(r, false));
+    const [cats, reqs, tpls, versions] = await Promise.all([
+      this.prisma.lineCategory.groupBy({ by: ['requestTypeId'], _count: { _all: true } }),
+      this.prisma.request.groupBy({ by: ['requestTypeId'], _count: { _all: true } }),
+      this.prisma.template.groupBy({ by: ['requestTypeId'], _count: { _all: true } }),
+      this.prisma.workflowVersion.findMany({ where: { status: 'ACTIVE' }, select: { version: true, workflow: { select: { requestTypeId: true } } } }),
+    ]);
+    const count = (g: { requestTypeId: string; _count: { _all: number } }[], id: string) => g.find((x) => x.requestTypeId === id)?._count._all ?? 0;
+    return rows.map((r) => {
+      const stats: RequestTypeStatsDto = {
+        categoryCount: count(cats, r.id),
+        requestCount: count(reqs, r.id),
+        templateCount: count(tpls, r.id),
+        activeWorkflowVersion: versions.find((v) => v.workflow.requestTypeId === r.id)?.version ?? null,
+      };
+      return { ...typeDto(r, false), stats };
+    });
+  }
+
+  @Get('modules')
+  @AuthOnly()
+  modules(): RequestModuleDto[] {
+    return listModules().map((key) => ({ key }));
   }
 
   @Get(':id')
@@ -117,6 +177,8 @@ export class RequestTypesController {
   @Post()
   @RequirePermission('request_types.manage')
   async create(@Req() req: Req_, @Body(new ZodPipe(requestTypeInputSchema)) b: RequestTypeInput) {
+    checkModuleKey(b.moduleKey);
+    checkHeaderFields(b.headerFields, b.moduleKey);
     if (await this.prisma.requestType.findFirst({ where: { OR: [{ code: b.code }, { numberPrefix: b.numberPrefix }] } })) {
       throw new DomainError('CONFLICT', 'Request type code or number prefix already exists');
     }
@@ -149,6 +211,8 @@ export class RequestTypesController {
   async update(@Req() req: Req_, @Param('id') id: string, @Body(new ZodPipe(requestTypeUpdateSchema)) b: Partial<RequestTypeInput>) {
     const before = await this.prisma.requestType.findUnique({ where: { id } });
     if (!before) throw new DomainError('NOT_FOUND', 'Request type not found');
+    if (b.moduleKey !== undefined) checkModuleKey(b.moduleKey);
+    if (b.headerFields !== undefined) checkHeaderFields(b.headerFields, b.moduleKey !== undefined ? b.moduleKey : before.moduleKey);
     const data: Prisma.RequestTypeUncheckedUpdateInput = {};
     for (const k of ['nameAr', 'nameEn', 'departmentId', 'moduleKey', 'hasLines', 'channels', 'isActive'] as const) {
       if (b[k] !== undefined) (data as Record<string, unknown>)[k] = b[k];
@@ -167,6 +231,7 @@ export class RequestTypesController {
   @RequirePermission('request_types.manage')
   async addCategory(@Req() req: Req_, @Param('id') id: string, @Body(new ZodPipe(lineCategoryInputSchema)) b: LineCategoryInput) {
     if (!(await this.prisma.requestType.findUnique({ where: { id } }))) throw new DomainError('NOT_FOUND', 'Request type not found');
+    checkCategory(b);
     const c = await this.prisma.$transaction(async (tx) => {
       const created = await tx.lineCategory.create({
         data: {
@@ -185,6 +250,7 @@ export class RequestTypesController {
           maxAttachments: b.maxAttachments,
           maxAmountWarning: b.maxAmountWarning ?? null,
           approvalRoles: { create: b.approvalRoleIds.map((roleId) => ({ roleId })) },
+          ...(b.allowedMimeTypes ? { allowedMimeTypes: b.allowedMimeTypes } : {}),
         },
         include: { approvalRoles: true },
       });
@@ -204,12 +270,14 @@ export class RequestTypesController {
   ) {
     const before = await this.prisma.lineCategory.findFirst({ where: { id: cid, requestTypeId: id }, include: { approvalRoles: true } });
     if (!before) throw new DomainError('NOT_FOUND', 'Category not found');
+    checkCategory(b, before);
     const c = await this.prisma.$transaction(async (tx) => {
       const data: Prisma.LineCategoryUncheckedUpdateInput = {};
       for (const k of ['nameAr', 'nameEn', 'icon', 'sortOrder', 'isActive', 'quantityFieldKey', 'minAttachments', 'maxAttachments'] as const) {
         if (b[k] !== undefined) (data as Record<string, unknown>)[k] = b[k];
       }
       if (b.extraFields !== undefined) data.extraFields = toJsonValue(b.extraFields) ?? [];
+      if (b.allowedMimeTypes !== undefined) data.allowedMimeTypes = b.allowedMimeTypes;
       if (b.unitPriceMin !== undefined) data.unitPriceMin = b.unitPriceMin;
       if (b.unitPriceMax !== undefined) data.unitPriceMax = b.unitPriceMax;
       if (b.maxAmountWarning !== undefined) data.maxAmountWarning = b.maxAmountWarning;
@@ -222,6 +290,24 @@ export class RequestTypesController {
       return tx.lineCategory.findUniqueOrThrow({ where: { id: cid }, include: { approvalRoles: true } });
     });
     return catDto(c);
+  }
+
+  @Put(':id/line-categories/order')
+  @HttpCode(200)
+  @RequirePermission('request_types.manage')
+  async reorderCategories(@Req() req: Req_, @Param('id') id: string, @Body(new ZodPipe(lineCategoryOrderSchema)) b: LineCategoryOrderBody) {
+    if (!(await this.prisma.requestType.findUnique({ where: { id } }))) throw new DomainError('NOT_FOUND', 'Request type not found');
+    const have = (await this.prisma.lineCategory.findMany({ where: { requestTypeId: id }, select: { id: true } })).map((c) => c.id);
+    const want = new Set(b.ids);
+    if (want.size !== b.ids.length || want.size !== have.length || !have.every((x) => want.has(x))) {
+      throw new DomainError('VALIDATION', "ids must be exactly the set of this request type's category ids");
+    }
+    const t = await this.prisma.$transaction(async (tx) => {
+      for (const [i, cid] of b.ids.entries()) await tx.lineCategory.update({ where: { id: cid }, data: { sortOrder: i * 10 } });
+      await audit(tx, { actor: actorFromReq(req), action: 'line_category.reorder', entityType: 'RequestType', entityId: id, meta: { ids: b.ids } });
+      return tx.requestType.findUniqueOrThrow({ where: { id }, include: typeInclude });
+    });
+    return typeDto(t, true);
   }
 }
 
@@ -358,6 +444,19 @@ function tvDto(v: Prisma.TemplateVersionGetPayload<object>) {
   };
 }
 
+function tDto(t: Prisma.TemplateGetPayload<{ include: { versions: true } }>) {
+  return {
+    id: t.id,
+    requestTypeId: t.requestTypeId,
+    code: t.code,
+    nameAr: t.nameAr,
+    nameEn: t.nameEn,
+    isDefault: t.isDefault,
+    isActive: t.isActive,
+    versions: [...t.versions].sort((a, b) => b.version - a.version).map(tvDto),
+  };
+}
+
 @Controller()
 export class TemplatesController {
   constructor(private readonly prisma: PrismaService) {}
@@ -395,21 +494,65 @@ export class TemplatesController {
     return { key, url: signFileUrl(key) };
   }
 
+  @Post('templates')
+  @RequirePermission('templates.manage')
+  async create(@CurrentUser() user: AuthUser, @Req() req: Req_, @Body(new ZodPipe(templateCreateSchema)) b: TemplateCreateBody) {
+    if (!(await this.prisma.requestType.findUnique({ where: { id: b.requestTypeId } }))) throw new DomainError('NOT_FOUND', 'Request type not found');
+    const src = b.copyFromTemplateId
+      ? await this.prisma.template.findUnique({ where: { id: b.copyFromTemplateId }, include: { versions: true } })
+      : null;
+    if (b.copyFromTemplateId && !src) throw new DomainError('NOT_FOUND', 'Source template not found');
+    if (await this.prisma.template.findUnique({ where: { requestTypeId_code: { requestTypeId: b.requestTypeId, code: b.code } } })) {
+      throw new DomainError('CONFLICT', 'Template code already exists for this request type');
+    }
+    const srcVersion = src ? (src.versions.find((v) => v.status === 'ACTIVE') ?? [...src.versions].sort((a, c) => c.version - a.version)[0]) : undefined;
+    const config = srcVersion
+      ? (srcVersion.config as Prisma.InputJsonValue)
+      : (toJsonValue({ ...DEFAULT_TEMPLATE_CONFIG, titleAr: b.nameAr, titleEn: b.nameEn }) as Prisma.InputJsonValue);
+    const id = await this.prisma.$transaction(async (tx) => {
+      if (b.isDefault) await tx.template.updateMany({ where: { requestTypeId: b.requestTypeId }, data: { isDefault: false } });
+      const created = await tx.template.create({
+        data: { requestTypeId: b.requestTypeId, code: b.code, nameAr: b.nameAr, nameEn: b.nameEn, isDefault: b.isDefault, isActive: true },
+      });
+      await tx.templateVersion.create({
+        data: { templateId: created.id, version: 1, status: 'DRAFT', layoutKey: b.layoutKey, config, createdById: user.id },
+      });
+      await audit(tx, {
+        actor: actorFromReq(req),
+        action: 'template.create',
+        entityType: 'Template',
+        entityId: created.id,
+        after: { code: b.code, requestTypeId: b.requestTypeId, layoutKey: b.layoutKey },
+      });
+      return created.id;
+    });
+    return tDto(await this.prisma.template.findUniqueOrThrow({ where: { id }, include: { versions: true } }));
+  }
+
+  @Patch('templates/:id')
+  @RequirePermission('templates.manage')
+  async update(@Req() req: Req_, @Param('id') id: string, @Body(new ZodPipe(templateUpdateSchema)) b: TemplateUpdateBody) {
+    const before = await this.prisma.template.findUnique({ where: { id } });
+    if (!before) throw new DomainError('NOT_FOUND', 'Template not found');
+    if (b.isActive === false && before.isDefault && b.isDefault !== false) {
+      throw new DomainError('INVALID_STATE', 'Choose another default template before deactivating this one');
+    }
+    const pick = (t: { nameAr: string; nameEn: string; isDefault: boolean; isActive: boolean }) => ({ nameAr: t.nameAr, nameEn: t.nameEn, isDefault: t.isDefault, isActive: t.isActive });
+    const out = await this.prisma.$transaction(async (tx) => {
+      if (b.isDefault === true) await tx.template.updateMany({ where: { requestTypeId: before.requestTypeId, id: { not: id } }, data: { isDefault: false } });
+      const u = await tx.template.update({ where: { id }, data: b, include: { versions: true } });
+      await audit(tx, { actor: actorFromReq(req), action: 'template.update', entityType: 'Template', entityId: id, before: pick(before), after: pick(u) });
+      return u;
+    });
+    return tDto(out);
+  }
+
   @Get('templates/:id')
   @RequirePermission('templates.manage')
   async get(@Param('id') id: string) {
     const t = await this.prisma.template.findUnique({ where: { id }, include: { versions: { orderBy: { version: 'desc' } } } });
     if (!t) throw new DomainError('NOT_FOUND', 'Template not found');
-    return {
-      id: t.id,
-      requestTypeId: t.requestTypeId,
-      code: t.code,
-      nameAr: t.nameAr,
-      nameEn: t.nameEn,
-      isDefault: t.isDefault,
-      isActive: t.isActive,
-      versions: t.versions.map(tvDto),
-    };
+    return tDto(t);
   }
 
   @Get('template-versions/:id')

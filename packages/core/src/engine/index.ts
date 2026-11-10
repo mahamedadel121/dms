@@ -1,6 +1,6 @@
 // @dms/core/engine (WP2): request/approval workflow engine, PLAN sections 4-5.
 export * from './types';
-export { registerModule, getModule } from './registry';
+export { registerModule, getModule, listModules } from './registry';
 export { evaluateCondition, parseCondition, conditionUses } from './conditions';
 export { submitRequest } from './submit';
 export {
