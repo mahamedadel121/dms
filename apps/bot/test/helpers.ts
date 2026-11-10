@@ -75,3 +75,12 @@ export async function addLine(u: HarnessUser, type: string, amount: string, phot
   for (let i = 0; i < photos; i++) await u.photo(await jpeg());
   await u.click('خلصت صور');
 }
+
+/** The last `n` bot messages joined (a reply is often followed by a re-prompt). */
+export function tail(u: HarnessUser, n = 2): string {
+  return u
+    .sent()
+    .slice(-n)
+    .map((m) => m.text)
+    .join('\n---\n');
+}

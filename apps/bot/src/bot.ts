@@ -2,6 +2,7 @@ import { Bot, type Context } from 'grammy';
 import type { UserFromGetMe } from 'grammy/types';
 import { Prisma, type PrismaClient } from '@dms/db';
 import { getSetting } from '@dms/core/config';
+import { registerExpenseModule } from '@dms/core/expense';
 import type { StorageAdapter } from '@dms/core/storage';
 import { handleInput, type FlowDeps, type Session } from './flow';
 import { M } from './messages';
@@ -74,6 +75,11 @@ function makeOut(ctx: Context, chatId: number): Out {
 
 export function createBot(deps: BotDeps): DmsBot {
   const { prisma } = deps;
+  try {
+    registerExpenseModule(); // the bot process submits requests in-process (D6)
+  } catch (e) {
+    console.warn('[bot] expense module not registered:', (e as Error).message);
+  }
   const now = deps.now ?? (() => new Date());
   const flowDeps: FlowDeps = { prisma, storage: deps.storage, downloadFile: deps.downloadFile, now };
   const bot = new Bot<Context>(deps.token, deps.botInfo ? { botInfo: deps.botInfo } : undefined) as DmsBot;
