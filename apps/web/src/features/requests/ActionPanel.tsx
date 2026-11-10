@@ -35,7 +35,7 @@ export function ActionPanel({ detail, onChanged, onOpenCorrection }: { detail: R
   const id = detail.id;
 
   const fail = (e: unknown) => {
-    if (e instanceof ApiError && e.code === 'LOCKED') toast.error(t('requests.lock.lockedBy', { name: String((e.details as { holder?: string } | undefined)?.holder ?? detail.lock?.userName ?? '') }));
+    if (e instanceof ApiError && e.code === 'LOCKED') toast.error(t('requests.lock.lockedBy', { name: String((e.details as { userName?: string } | undefined)?.userName ?? detail.lock?.userName ?? '') }));
     else toast.error(e);
     onChanged();
   };

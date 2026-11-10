@@ -7,12 +7,14 @@ import { Badge, Card, EmptyState, ErrorBlock, LoadingBlock, PageHeader } from '@
 import { useTr } from '../common/useTr';
 import type { PagedResult, TemplateDto } from '../types';
 
+type TemplateRow = Omit<TemplateDto, 'versions'> & { activeVersion?: number | null };
+
 export function TemplatesListPage() {
   const { t, locale } = useTr();
   const q = useQuery({
     queryKey: ['templates'],
     queryFn: async () => {
-      const r = await api.get<PagedResult<TemplateDto> | TemplateDto[]>('/templates');
+      const r = await api.get<PagedResult<TemplateRow> | TemplateRow[]>('/templates');
       return Array.isArray(r) ? r : r.items;
     },
   });
@@ -29,8 +31,6 @@ export function TemplatesListPage() {
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {(q.data ?? []).map((tp) => {
-            const active = tp.versions?.find((v) => v.status === 'ACTIVE');
-            const draft = tp.versions?.find((v) => v.status === 'DRAFT');
             return (
               <li key={tp.id}>
                 <Link href={`/templates/${tp.id}`} className="block rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:border-brand-500">
@@ -38,8 +38,7 @@ export function TemplatesListPage() {
                   <p className="text-xs text-slate-500">{tp.code}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {tp.isDefault && <Badge tone="blue">{t('templates.default')}</Badge>}
-                    {active && <Badge tone="green">{t('workflows.activeVersion', { n: active.version })}</Badge>}
-                    {draft && <Badge tone="amber">{t('workflows.draftVersion', { n: draft.version })}</Badge>}
+                    {tp.activeVersion ? <Badge tone="green">{t('workflows.activeVersion', { n: tp.activeVersion })}</Badge> : null}
                   </div>
                 </Link>
               </li>

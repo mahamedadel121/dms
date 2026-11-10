@@ -50,7 +50,6 @@ export function CorrectionModal({
   const [items, setItems] = useState<Item[]>([blank(initialTarget)]);
   useEffect(() => {
     if (open) setItems([blank(initialTarget)]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialTarget]);
 
   const upd = (i: number, patch: Partial<Item>) => setItems((l) => l.map((x, j) => (j === i ? { ...x, ...patch } : x)));

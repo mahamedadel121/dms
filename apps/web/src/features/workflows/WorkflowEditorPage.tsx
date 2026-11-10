@@ -260,13 +260,13 @@ function Simulator({ versionId, requestTypeId, steps, dirty }: { versionId: stri
         <div className="mt-3">
           {applicable ? (
             <ul className="flex flex-wrap gap-2">
-              {steps.map((s) => {
-                const a = applicable.get(s.key);
-                if (a === undefined) return null;
+              {[...applicable.entries()].map(([key, a]) => {
+                const base = steps.find((s) => s.key === key.split(':')[0]);
+                const suffix = key.includes(':') ? ` (${key.split(':')[1]})` : '';
                 return (
-                  <li key={s.uid}>
+                  <li key={key}>
                     <Badge tone={a ? 'green' : 'gray'}>
-                      {(locale === 'ar' ? s.nameAr : s.nameEn) || s.key}: {t(a ? 'workflows.simulate.applies' : 'workflows.simulate.skipped')}
+                      {((locale === 'ar' ? base?.nameAr : base?.nameEn) || key.split(':')[0]) + suffix}: {t(a ? 'workflows.simulate.applies' : 'workflows.simulate.skipped')}
                     </Badge>
                   </li>
                 );

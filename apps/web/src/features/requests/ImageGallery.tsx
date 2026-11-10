@@ -31,7 +31,6 @@ export function ImageGallery({ attachments, renderActions }: Props) {
               }`}
               aria-label={t('requests.gallery.open')}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={a.thumbUrl || a.url} alt="" className="h-full w-full object-cover" loading="lazy" />
               {a.duplicates.length > 0 && (
                 <span className="absolute end-1 top-1 rounded bg-red-600 p-0.5 text-white">
@@ -145,7 +144,6 @@ function Viewer({
             </button>
           </>
         )}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={a.url}
           alt=""

@@ -7,12 +7,14 @@ import { Badge, Card, EmptyState, ErrorBlock, LoadingBlock, PageHeader } from '@
 import { useTr } from '../common/useTr';
 import type { PagedResult, WorkflowDto } from '../types';
 
+type WorkflowRow = Omit<WorkflowDto, 'versions'> & { activeVersion?: number | null };
+
 export function WorkflowsListPage() {
   const { t, locale } = useTr();
   const q = useQuery({
     queryKey: ['workflows'],
     queryFn: async () => {
-      const r = await api.get<PagedResult<WorkflowDto> | WorkflowDto[]>('/workflows');
+      const r = await api.get<PagedResult<WorkflowRow> | WorkflowRow[]>('/workflows');
       return Array.isArray(r) ? r : r.items;
     },
   });
@@ -29,16 +31,13 @@ export function WorkflowsListPage() {
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {(q.data ?? []).map((w) => {
-            const active = w.versions?.find((v) => v.status === 'ACTIVE');
-            const draft = w.versions?.find((v) => v.status === 'DRAFT');
             return (
               <li key={w.id}>
                 <Link href={`/workflows/${w.id}`} className="block rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:border-brand-500">
                   <h3 className="font-bold text-slate-900">{locale === 'ar' ? w.nameAr : w.nameEn || w.nameAr}</h3>
                   <p className="text-xs text-slate-500">{w.requestTypeCode}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {active && <Badge tone="green">{t('workflows.activeVersion', { n: active.version })}</Badge>}
-                    {draft && <Badge tone="amber">{t('workflows.draftVersion', { n: draft.version })}</Badge>}
+                    {w.activeVersion ? <Badge tone="green">{t('workflows.activeVersion', { n: w.activeVersion })}</Badge> : null}
                     {!w.isActive && <Badge>{t('common.inactive')}</Badge>}
                   </div>
                 </Link>

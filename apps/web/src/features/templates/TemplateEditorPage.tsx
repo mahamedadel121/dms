@@ -85,7 +85,6 @@ export function TemplateEditorPage({ id }: { id: string }) {
       setCfg(parsed.success ? parsed.data : DEFAULT_CONFIG);
       setDirty(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.id, tpl.dataUpdatedAt]);
 
   const set = (patch: Partial<TemplateConfig>) => {
@@ -151,7 +150,6 @@ export function TemplateEditorPage({ id }: { id: string }) {
       }
     }, 600);
     return () => clearTimeout(h);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [versionId, JSON.stringify(cfg)]);
 
   const openPdf = async () => {
