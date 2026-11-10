@@ -457,3 +457,5 @@ export interface TemplateDto {
   isActive: boolean;
   versions?: TemplateVersionDto[];
 }
+export type SendBackBody = z.infer<typeof sendBackBodySchema>;
+export type RejectBody = z.infer<typeof rejectBodySchema>;
