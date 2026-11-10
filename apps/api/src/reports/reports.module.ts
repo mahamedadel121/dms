@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
+import { ReportsController } from './reports.controller';
 
-// Owned by WP5. Controllers and providers are added by that work package only.
-@Module({})
+// Owned by WP5.
+@Module({ controllers: [ReportsController] })
 export class ReportsModule {}

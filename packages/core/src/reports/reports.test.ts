@@ -294,7 +294,7 @@ describe('exports: auditor scenario (tolls in January)', () => {
     expect(e.rowCount).toBe(2);
     expect(e.fileName).toMatch(/\.xlsx$/);
     const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(await storage.get(e.storageKey!));
+    await wb.xlsx.load((await storage.get(e.storageKey!)) as unknown as ExcelJS.Buffer);
     const ws = wb.getWorksheet('Report')!;
     const values = ws.getSheetValues().slice(2) as unknown[][];
     const col = (name: string) => (ws.getRow(1).values as string[]).indexOf(name);
@@ -335,7 +335,7 @@ describe('exports: auditor scenario (tolls in January)', () => {
     const att = await t.prisma.attachment.findMany({ where: { request: { number: 'DE-26-900002' } } });
     expect(zip.get(`${folder}/DE-26-900002/image_1.jpg`)!.equals(await storage.get(att[0]!.storageKey))).toBe(true);
     const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(zip.get('index.xlsx')!);
+    await wb.xlsx.load(zip.get("index.xlsx")! as unknown as ExcelJS.Buffer);
     expect(wb.getWorksheet('Report')).toBeDefined();
     const images = wb.getWorksheet('Images')!;
     expect(images.rowCount).toBe(4); // header + 3
