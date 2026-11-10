@@ -118,3 +118,12 @@ Tested on the build machine on 2026-11-10 against the local PostgreSQL 17 cluste
 - `restore.ps1` without `-Yes` with a wrong answer: cancelled, exit code 1, nothing changed.
 - `restore.ps1 -Yes` and `restore.sh --yes` into a scratch database (`dms_wp9_restore_test`, dropped afterwards): 48 tables restored; the storage archive extracted; a second run renamed the existing storage folder to `*.before-restore-*` instead of deleting it.
 - Not tested: scheduled runs (Task Scheduler and cron are documented examples only) and restores on another machine.
+
+## S3 / MinIO storage
+
+Set `STORAGE_DRIVER=s3` with `S3_BUCKET` (required), `S3_REGION`, `S3_ENDPOINT` (MinIO URL; empty for AWS), `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` (true for MinIO) and optionally `S3_PREFIX`. Files are stored under the same keys as in the local folder, with the prefix in front.
+
+- **Bucket versioning**: enable it on the bucket, so an overwritten or deleted object can be recovered.
+- **What to back up**: the database dump and the bucket (or the prefix). `backup.ps1` / `backup.sh` archive only the local `STORAGE_ROOT`; with the S3 driver they do not copy the bucket. Use bucket replication, `aws s3 sync s3://bucket/prefix <backup-location>` or `mc mirror`.
+- **Migrate existing local files**: `aws s3 sync storage-data s3://bucket/prefix` (add `--endpoint-url http://minio:9000` for MinIO), then switch `STORAGE_DRIVER=s3` and restart. Keys are unchanged, so existing database rows keep working.
+- **Direct downloads**: `S3_PRESIGNED_REDIRECT=true` makes `GET /api/v1/files/...` answer 302 to a presigned S3 URL (valid at most 5 minutes) instead of streaming the file through the API. The browser must be able to reach the S3 endpoint. Leave it false to proxy.

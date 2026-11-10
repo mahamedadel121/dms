@@ -278,3 +278,34 @@ Request numbers: `DE-YY-NNNNNN` for driver expenses (prefix `DE`), from `Request
 | Settings and configuration reads | `packages/core/src/config` |
 | Permissions and roles | `packages/shared/src/constants/permissions.ts`, `packages/core/src/rbac` |
 | Bot flow and messages | `apps/bot/src/flow.ts`, `apps/bot/src/messages.ts` |
+
+## 6. Monitoring
+
+`GET /api/v1/metrics` serves Prometheus text format (0.0.4). Access: when `METRICS_TOKEN` is set, send `Authorization: Bearer <token>`; when it is not set the route is open outside production and returns 404 in production.
+
+```yaml
+scrape_configs:
+  - job_name: dms
+    metrics_path: /api/v1/metrics
+    authorization:
+      type: Bearer
+      credentials: <METRICS_TOKEN>
+    static_configs:
+      - targets: ['dms-host:4000']
+```
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `dms_http_requests_total` | counter | method, route, status | HTTP requests (route is the templated path) |
+| `dms_http_request_duration_seconds` | histogram | method, route | Request duration |
+| `dms_process_uptime_seconds` | gauge | - | Process uptime |
+| `dms_process_resident_memory_bytes` | gauge | - | Resident memory |
+| `dms_process_heap_used_bytes` | gauge | - | Heap in use |
+| `dms_db_up` | gauge | - | 1 when `SELECT 1` works |
+| `dms_jobs` | gauge | queue, status | Jobs by queue and status |
+| `dms_jobs_oldest_pending_age_seconds` | gauge | queue | Age of the oldest runnable PENDING job |
+| `dms_sap_postings` | gauge | status | SAP postings by status |
+| `dms_notifications` | gauge | channel, status | PENDING and FAILED notifications |
+| `dms_requests` | gauge | status | Requests by status |
+| `dms_steps_overdue` | gauge | - | ACTIVE steps past their due date |
+| `dms_build_info` | gauge | version | Always 1; version from the root `package.json` |

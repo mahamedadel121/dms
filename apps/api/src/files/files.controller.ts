@@ -1,5 +1,6 @@
 import { Controller, Get, Param, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
+import { getConfig } from '@dms/core/config';
 import { DomainError } from '@dms/core/errors';
 import { getStorage, verifyFileUrl } from '@dms/core/storage';
 import { Public } from '../common/decorators';
@@ -42,6 +43,17 @@ export class FilesController {
     const storage = getStorage();
     const { size } = await storage.stat(v.key); // NOT_FOUND -> 404
     const remaining = Math.max(0, Number(exp) - Math.floor(Date.now() / 1000));
+    if (getConfig().S3_PRESIGNED_REDIRECT && storage.presignGet) {
+      const url = await storage.presignGet(v.key, {
+        ttlSec: Math.max(1, Math.min(remaining, 300)),
+        download: v.download,
+        fileName: v.fileName,
+        contentType: contentTypeOf(v.key),
+      });
+      res.setHeader('Cache-Control', 'no-store');
+      res.redirect(302, url);
+      return;
+    }
     res.status(200);
     res.setHeader('Content-Type', contentTypeOf(v.key));
     res.setHeader('Content-Length', String(size));

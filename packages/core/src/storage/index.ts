@@ -6,6 +6,7 @@ import { pipeline } from 'node:stream/promises';
 import { Readable, Transform } from 'node:stream';
 import { getConfig } from '../config';
 import { DomainError } from '../errors';
+import { createS3Storage, s3ConfigFromEnv } from './s3';
 
 export interface StorageAdapter {
   put(
@@ -18,6 +19,11 @@ export interface StorageAdapter {
   exists(key: string): Promise<boolean>;
   stat(key: string): Promise<{ size: number }>;
   delete(key: string): Promise<void>;
+  /** Short-lived direct download URL (S3 driver only). */
+  presignGet?(
+    key: string,
+    o: { ttlSec: number; download?: boolean; fileName?: string; contentType?: string },
+  ): Promise<string>;
 }
 
 const KEY_RE = /^[A-Za-z0-9/_.-]+$/;
@@ -125,13 +131,23 @@ function repoRoot(): string {
 }
 
 let singleton: { root: string; storage: StorageAdapter } | undefined;
+let s3Singleton: { key: string; storage: StorageAdapter } | undefined;
+let override: StorageAdapter | null = null;
+
+/** Test hook: overrides getStorage() until called with null. */
+export function setStorageForTests(s: StorageAdapter | null): void {
+  override = s;
+}
 
 /** Storage per STORAGE_DRIVER/STORAGE_ROOT (relative roots resolve against the repo root). */
 export function getStorage(): StorageAdapter {
+  if (override) return override;
   const cfg = getConfig();
   if (cfg.STORAGE_DRIVER === 's3') {
-    // TODO(WP5): S3 adapter is a documented stub (PLAN section 8).
-    throw new DomainError('NOT_IMPLEMENTED', 'STORAGE_DRIVER=s3 is not implemented; use local');
+    const s3 = s3ConfigFromEnv();
+    const key = `${s3.bucket}|${s3.endpoint ?? ''}|${s3.prefix ?? ''}`;
+    if (!s3Singleton || s3Singleton.key !== key) s3Singleton = { key, storage: createS3Storage(s3) };
+    return s3Singleton.storage;
   }
   const root = isAbsolute(cfg.STORAGE_ROOT) ? cfg.STORAGE_ROOT : resolve(repoRoot(), cfg.STORAGE_ROOT);
   if (!singleton || singleton.root !== root) singleton = { root, storage: createLocalStorage(root) };
