@@ -89,7 +89,7 @@ ${b.at ? `<div class="sig-at">${escapeHtml(b.at)}</div>` : ''}
 
 export function renderDocumentHtml(m: DocumentModel): string {
   const hdrCells = m.headerRows.map(
-    (r) => `<td class="k">${escapeHtml(r.label)}</td><td class="v">${escapeHtml(r.value)}</td>`,
+    (r) => `<td class="k">${escapeHtml(r.label)}</td><td class="v">${/^[\d:\s.,/-]+$/.test(r.value) ? `<span dir="ltr">${escapeHtml(r.value)}</span>` : escapeHtml(r.value)}</td>`,
   );
   const hdrRows: string[] = [];
   for (let i = 0; i < hdrCells.length; i += 3) hdrRows.push(`<tr>${hdrCells.slice(i, i + 3).join('')}</tr>`);

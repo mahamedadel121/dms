@@ -1,5 +1,6 @@
 // Test fixtures (WP4): builds a request in the cloned seed DB with Prisma only, no engine needed.
 import sharp from 'sharp';
+import { divDecimal } from '@dms/shared';
 import type { PrismaClient } from '@prisma/client';
 import type { StorageAdapter } from '../storage';
 import { buildJournalEntry } from '../sap';
@@ -130,7 +131,7 @@ export async function createRequestFixture(prisma: PrismaClient, o: FixtureOptio
         isEdited: d.original !== d.amount,
         extraValues: d.qty ? { liters: d.qty } : {},
         quantity: d.qty ?? null,
-        unitPrice: d.qty ? (Number(d.amount) / Number(d.qty)).toFixed(2) : null,
+        unitPrice: d.qty ? divDecimal(d.amount, d.qty) : null,
         lineDate: new Date('2026-03-09'),
       },
     });
@@ -159,6 +160,7 @@ export async function createRequestFixture(prisma: PrismaClient, o: FixtureOptio
   let n = 0;
   const approvedMax = status === 'PAID' ? Infinity : (o.approvedUpTo ?? 1);
   let first = true;
+  let activeSet = false;
   for (const s of wfv.steps) {
     if (!s.role) continue; // dynamic slot: no role in these scenarios
     n++;
@@ -186,7 +188,7 @@ export async function createRequestFixture(prisma: PrismaClient, o: FixtureOptio
         roleId: s.roleId!,
         roleNameAr: s.role.nameAr,
         roleNameEn: s.role.nameEn,
-        status: !ok ? 'NOT_APPLICABLE' : approved ? 'APPROVED' : n === approvedMax + 1 ? 'ACTIVE' : 'PENDING',
+        status: !ok ? 'NOT_APPLICABLE' : approved ? 'APPROVED' : !activeSet ? 'ACTIVE' : 'PENDING',
         activatedAt: new Date('2026-03-09T08:00:00Z'),
         dueAt: new Date('2026-03-10T08:00:00Z'),
         actedAt: approved ? new Date(`2026-03-09T${String(8 + n).padStart(2, '0')}:15:00Z`) : null,
@@ -196,6 +198,7 @@ export async function createRequestFixture(prisma: PrismaClient, o: FixtureOptio
       },
     });
     if (approved) first = false;
+    else if (ok) activeSet = true;
   }
 
   const treasury = await prisma.treasury.findFirstOrThrow({ where: { isDefault: true } });

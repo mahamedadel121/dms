@@ -58,7 +58,14 @@ export async function finalizeRequestPdf(
     return insertDocument(prisma, requestId, req, key, sha256Hex(stored), stored.length);
   }
   const pdf = await renderRequestPdf(prisma, requestId, { storage: store });
-  await store.put(key, pdf, { contentType: 'application/pdf', ifNotExists: true });
+  try {
+    await store.put(key, pdf, { contentType: 'application/pdf', ifNotExists: true });
+  } catch (e) {
+    // a concurrent finalize stored the file first: the stored bytes win, ours are discarded
+    if (!(await store.exists(key))) throw e;
+    const stored = await store.get(key);
+    return insertDocument(prisma, requestId, req, key, sha256Hex(stored), stored.length);
+  }
   return insertDocument(prisma, requestId, req, key, sha256Hex(pdf), pdf.length);
 }
 
@@ -103,3 +110,5 @@ export async function verifyFinalPdf(
   }
   return { ok: actual === doc.sha256, sha256: doc.sha256, actualSha256: actual, locked: doc.isLocked };
 }
+export { createRequestFixture } from './fixtures'; // test helper (WP4 tests, other WPs may reuse)
+export type { Scenario, FixtureOptions } from './fixtures';
