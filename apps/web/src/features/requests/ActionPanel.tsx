@@ -2,14 +2,18 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { AlertCircle, Check, CornerUpLeft, Lock, MessageSquareWarning, Unlock, X } from 'lucide-react';
+import { AlertCircle, Banknote, Check, CornerUpLeft, Lock, MessageSquareWarning, MoreHorizontal, X } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { Button } from '@/components/ui/Button';
+import { Button, IconButton } from '@/components/ui/Button';
 import { Checkbox, FormField, Textarea } from '@/components/ui/Fields';
+import { Icon } from '@/components/ui/Icon';
+import { Menu, type MenuItem } from '@/components/ui/Overlay';
+import type { SealKind } from '@/components/ui/Seal';
+import { useIsMobile } from '@/lib/useMediaQuery';
 import { LookupSelect } from '@/components/ui/Inputs2';
 import { Modal } from '@/components/ui/Modal';
-import { Card } from '@/components/ui/Display';
+import { Badge, Banner } from '@/components/ui/Display';
 import { useToast } from '@/components/ui/Toast';
 import { useTr } from '../common/useTr';
 import type { RequestDetail } from '../types';
@@ -18,10 +22,21 @@ type Dlg = null | 'approve' | 'sendBack' | 'reject';
 
 const HEARTBEAT_MS = 60_000;
 
-export function ActionPanel({ detail, onChanged, onOpenCorrection }: { detail: RequestDetail; onChanged: () => void; onOpenCorrection: () => void }) {
+export function ActionPanel({
+  detail,
+  onChanged,
+  onOpenCorrection,
+  onSealed,
+}: {
+  detail: RequestDetail;
+  onChanged: () => void;
+  onOpenCorrection: () => void;
+  onSealed?: (kind: SealKind) => void;
+}) {
   const { t, locale } = useTr();
   const { me, can } = useAuth();
   const toast = useToast();
+  const mobile = useIsMobile();
   const my = detail.myActions;
   const [dlg, setDlg] = useState<Dlg>(null);
   const [comment, setComment] = useState('');
@@ -86,8 +101,9 @@ export function ActionPanel({ detail, onChanged, onOpenCorrection }: { detail: R
     setDlg(null);
     setComment('');
   };
-  const done = (msg: string) => {
+  const done = (msg: string, seal?: SealKind) => {
     toast.success(msg);
+    if (seal) onSealed?.(seal);
     setHolding(false);
     heldRef.current = false;
     close();
@@ -102,7 +118,7 @@ export function ActionPanel({ detail, onChanged, onOpenCorrection }: { detail: R
         checklist: my && my.checklist.length > 0 ? Object.fromEntries(my.checklist.map((c) => [c.key, !!checks[c.key]])) : undefined,
         actionData: my?.isPayment && treasuryId ? { treasuryId } : undefined,
       }),
-    onSuccess: () => done(my?.isPayment ? t('requests.action.paidDone') : t('requests.action.approved')),
+    onSuccess: () => done(my?.isPayment ? t('requests.action.paidDone') : t('requests.action.approved'), my?.isPayment ? 'paid' : 'approved'),
     onError: fail,
   });
   const sendBack = useMutation({
@@ -112,7 +128,7 @@ export function ActionPanel({ detail, onChanged, onOpenCorrection }: { detail: R
   });
   const reject = useMutation({
     mutationFn: () => api.post(`${stepPath}/reject`, { reason: comment.trim() }),
-    onSuccess: () => done(t('requests.action.rejected')),
+    onSuccess: () => done(t('requests.action.rejected'), 'rejected'),
     onError: fail,
   });
 
@@ -123,98 +139,161 @@ export function ActionPanel({ detail, onChanged, onOpenCorrection }: { detail: R
   const missingRequired = my.checklist.filter((c) => c.required && !checks[c.key]);
   const canAct = !lockedByOther;
   const anyAction = my.approve || my.requestCorrection || my.sendBack || my.reject;
+  const heldByMe = lockedByMe || holding;
+  const canClaim = !lockedByOther && !heldByMe && can('requests.act');
+  const approveLabel = my.isPayment ? t('requests.action.pay') : t('requests.action.approve');
+  const approveIcon = <Icon as={my.isPayment ? Banknote : Check} size={16} />;
 
-  return (
-    <Card
-      title={t('requests.action.title')}
-      className="border-brand-200"
-      actions={
-        <span className="flex items-center gap-2">
-          {!lockedByOther && !lockedByMe && !holding && can('requests.act') && (
-            <Button size="sm" variant="secondary" icon={<Lock className="h-4 w-4" />} loading={claim.isPending} onClick={() => claim.mutate()}>
-              {t('requests.lock.claim')}
-            </Button>
-          )}
-          {(lockedByMe || holding) && (
-            <Button size="sm" variant="ghost" icon={<Unlock className="h-4 w-4" />} loading={release.isPending} onClick={() => release.mutate()}>
-              {t('requests.lock.release')}
-            </Button>
-          )}
-        </span>
-      }
-    >
+  // On a phone the primary button claims the lock first (when free), then opens the dialog.
+  const startApprove = () => {
+    if (canClaim && mobile) claim.mutate(undefined, { onSuccess: () => setDlg('approve') });
+    else setDlg('approve');
+  };
+
+  const lockState = (
+    <>
+      {canClaim && (
+        <Button size="sm" variant="secondary" icon={<Icon as={Lock} size={16} />} loading={claim.isPending} onClick={() => claim.mutate()} data-testid="action-claim">
+          {t('requests.lock.claim')}
+        </Button>
+      )}
+      {heldByMe && (
+        <>
+          <Badge tone="navy" icon={<Icon as={Lock} size={14} />}>
+            {t('requests.lock.heldByYou')}
+          </Badge>
+          <Button size="sm" variant="link" loading={release.isPending} onClick={() => release.mutate()} data-testid="action-release">
+            {t('requests.lock.release')}
+          </Button>
+        </>
+      )}
       {lockedByOther && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">
-          <Lock className="h-4 w-4" aria-hidden />
-          <span className="flex-1">{t('requests.lock.beingReviewedBy', { name: detail.lock?.userName ?? '' })}</span>
+        <>
+          <Badge tone="amber" icon={<Icon as={Lock} size={14} />}>
+            {t('requests.lock.beingReviewedBy', { name: detail.lock?.userName ?? '' })}
+          </Badge>
           {can('requests.force_unlock') && (
-            <Button size="sm" variant="danger" loading={force.isPending} onClick={() => force.mutate()}>
+            <Button size="sm" variant="danger-outline" loading={force.isPending} onClick={() => force.mutate()} data-testid="action-force">
               {t('requests.lock.force')}
             </Button>
           )}
-        </div>
+        </>
       )}
-      {(lockedByMe || holding) && <p className="mb-3 text-xs text-emerald-700">{t('requests.lock.heldByYou')}</p>}
-      {!anyAction && <p className="text-sm text-slate-500">{t('requests.action.noneAtStep')}</p>}
-      <div className="flex flex-wrap gap-2">
-        {my.approve && (
-          <Button disabled={!canAct} icon={<Check className="h-4 w-4" />} onClick={() => setDlg('approve')}>
-            {my.isPayment ? t('requests.action.pay') : t('requests.action.approve')}
-          </Button>
-        )}
-        {my.requestCorrection && (
-          <Button variant="secondary" disabled={!canAct} icon={<MessageSquareWarning className="h-4 w-4" />} onClick={onOpenCorrection}>
-            {t('requests.action.requestCorrection')}
-          </Button>
-        )}
-        {my.sendBack && (
-          <Button variant="secondary" disabled={!canAct} icon={<CornerUpLeft className="h-4 w-4" />} onClick={() => setDlg('sendBack')}>
-            {t('requests.action.sendBack')}
-          </Button>
-        )}
+    </>
+  );
+
+  const moreItems: MenuItem[] = [
+    { key: 'claim', label: t('requests.lock.claim'), icon: <Icon as={Lock} size={16} />, onSelect: () => claim.mutate(), hidden: !canClaim, testId: 'action-claim' },
+    { key: 'release', label: t('requests.lock.release'), onSelect: () => release.mutate(), hidden: !heldByMe, testId: 'action-release' },
+    { key: 'force', label: t('requests.lock.force'), onSelect: () => force.mutate(), hidden: !(lockedByOther && can('requests.force_unlock')), danger: true, testId: 'action-force' },
+    { key: 'sendback', label: t('requests.action.sendBack'), icon: <Icon as={CornerUpLeft} size={16} mirror />, onSelect: () => setDlg('sendBack'), hidden: !my.sendBack, disabled: !canAct, testId: 'action-sendback' },
+    { key: 'reject', label: t('requests.action.reject'), icon: <Icon as={X} size={16} />, onSelect: () => setDlg('reject'), hidden: !my.reject, disabled: !canAct, danger: true, testId: 'action-reject' },
+  ];
+
+  const bar = mobile ? (
+    <div
+      data-testid="action-bar"
+      data-no-print
+      className="fixed inset-x-0 bottom-0 z-bar flex items-center gap-2 border-t border-hairline bg-surface px-4 pt-3 pb-[calc(12px+env(safe-area-inset-bottom))] shadow-bar"
+    >
+      <Menu
+        align="start"
+        testId="action-more-menu"
+        items={moreItems}
+        trigger={<IconButton variant="secondary" size="md" icon={<Icon as={MoreHorizontal} />} label={t('requests.action.more')} data-testid="action-more" />}
+      />
+      {lockedByOther && (
+        <Badge tone="amber" icon={<Icon as={Lock} size={14} />}>
+          {detail.lock?.userName ?? ''}
+        </Badge>
+      )}
+      {my.requestCorrection && (
+        <Button variant="secondary" size="lg" className="flex-1" disabled={!canAct} icon={<Icon as={MessageSquareWarning} size={16} />} onClick={onOpenCorrection} data-testid="action-correction">
+          {t('requests.action.requestCorrection')}
+        </Button>
+      )}
+      {my.approve && (
+        <Button size="lg" className="flex-[1.4]" disabled={!canAct} loading={claim.isPending} icon={approveIcon} onClick={startApprove} data-testid="action-approve">
+          {approveLabel}
+        </Button>
+      )}
+    </div>
+  ) : (
+    <div
+      data-testid="action-bar"
+      data-no-print
+      className="sticky bottom-4 z-bar flex flex-wrap items-center gap-3 rounded-lg border border-hairline bg-surface px-5 py-3 shadow-bar"
+    >
+      <div className="flex flex-wrap items-center gap-2">{lockState}</div>
+      {!anyAction && <p className="text-sm text-ink-3">{t('requests.action.noneAtStep')}</p>}
+      {(my.editAmounts || my.reclassify) && <p className="hidden text-xs text-ink-3 xl:block">{t('requests.action.editHint')}</p>}
+      <div className="ms-auto flex flex-wrap gap-2">
         {my.reject && (
-          <Button variant="danger" disabled={!canAct} icon={<X className="h-4 w-4" />} onClick={() => setDlg('reject')}>
+          <Button variant="danger-outline" disabled={!canAct} icon={<Icon as={X} size={16} />} onClick={() => setDlg('reject')} data-testid="action-reject">
             {t('requests.action.reject')}
           </Button>
         )}
+        {my.sendBack && (
+          <Button variant="secondary" disabled={!canAct} icon={<Icon as={CornerUpLeft} size={16} mirror />} onClick={() => setDlg('sendBack')} data-testid="action-sendback">
+            {t('requests.action.sendBack')}
+          </Button>
+        )}
+        {my.requestCorrection && (
+          <Button variant="secondary" disabled={!canAct} icon={<Icon as={MessageSquareWarning} size={16} />} onClick={onOpenCorrection} data-testid="action-correction">
+            {t('requests.action.requestCorrection')}
+          </Button>
+        )}
+        {my.approve && (
+          <Button size="lg" disabled={!canAct} icon={approveIcon} onClick={startApprove} data-testid="action-approve">
+            {approveLabel}
+          </Button>
+        )}
       </div>
-      {(my.editAmounts || my.reclassify) && <p className="mt-3 text-xs text-slate-500">{t('requests.action.editHint')}</p>}
+    </div>
+  );
+
+  return (
+    <>
+      {bar}
 
       {/* approve / pay */}
       <Modal
         open={dlg === 'approve'}
         onClose={close}
+        testId="approve-dialog"
         title={my.isPayment ? t('requests.action.payTitle') : t('requests.action.approveTitle')}
         footer={
           <>
+            <Button loading={approve.isPending} disabled={missingRequired.length > 0} onClick={() => approve.mutate()} data-testid="approve-confirm">
+              {approveLabel}
+            </Button>
             <Button variant="secondary" onClick={close}>
               {t('common.cancel')}
-            </Button>
-            <Button loading={approve.isPending} disabled={missingRequired.length > 0} onClick={() => approve.mutate()}>
-              {my.isPayment ? t('requests.action.pay') : t('requests.action.approve')}
             </Button>
           </>
         }
       >
-        <div className="space-y-3">
+        <div className="space-y-4">
           {my.checklist.length > 0 && (
-            <fieldset className="space-y-2 rounded-md border border-slate-200 p-3">
+            <fieldset className="space-y-2 rounded border border-hairline p-3">
               {my.checklist.map((c) => (
-                <Checkbox
-                  key={c.key}
-                  checked={!!checks[c.key]}
-                  onChange={(v) => setChecks((p) => ({ ...p, [c.key]: v }))}
-                  label={
-                    <span>
-                      {locale === 'ar' ? c.labelAr : c.labelEn || c.labelAr}
-                      {c.required && <span className="ms-1 text-red-600">*</span>}
-                    </span>
-                  }
-                />
+                <div key={c.key}>
+                  <Checkbox
+                    checked={!!checks[c.key]}
+                    onChange={(v) => setChecks((p) => ({ ...p, [c.key]: v }))}
+                    data-testid={'approve-check-' + c.key}
+                    label={
+                      <span>
+                        {locale === 'ar' ? c.labelAr : c.labelEn || c.labelAr}
+                        {c.required && <span className="ms-1 text-danger">*</span>}
+                      </span>
+                    }
+                  />
+                </div>
               ))}
               {missingRequired.length > 0 && (
-                <p className="flex items-center gap-1 text-xs text-red-700">
-                  <AlertCircle className="h-3.5 w-3.5" /> {t('requests.action.checklistRequired')}
+                <p className="flex items-center gap-1 text-xs text-danger">
+                  <Icon as={AlertCircle} size={14} /> {t('requests.action.checklistRequired')}
                 </p>
               )}
             </fieldset>
@@ -225,7 +304,7 @@ export function ActionPanel({ detail, onChanged, onOpenCorrection }: { detail: R
             </FormField>
           )}
           <FormField label={t('requests.action.commentOptional')}>
-            {(fid) => <Textarea id={fid} value={comment} onChange={(e) => setComment(e.target.value)} />}
+            {(fid) => <Textarea id={fid} value={comment} onChange={(e) => setComment(e.target.value)} data-testid="approve-comment" />}
           </FormField>
         </div>
       </Modal>
@@ -234,20 +313,21 @@ export function ActionPanel({ detail, onChanged, onOpenCorrection }: { detail: R
       <Modal
         open={dlg === 'sendBack'}
         onClose={close}
+        testId="sendback-dialog"
         title={t('requests.action.sendBackTitle')}
         footer={
           <>
+            <Button loading={sendBack.isPending} disabled={!comment.trim()} onClick={() => sendBack.mutate()} data-testid="sendback-confirm">
+              {t('requests.action.sendBack')}
+            </Button>
             <Button variant="secondary" onClick={close}>
               {t('common.cancel')}
-            </Button>
-            <Button loading={sendBack.isPending} disabled={!comment.trim()} onClick={() => sendBack.mutate()}>
-              {t('requests.action.sendBack')}
             </Button>
           </>
         }
       >
         <FormField label={t('requests.action.commentRequired')} required>
-          {(fid) => <Textarea id={fid} value={comment} onChange={(e) => setComment(e.target.value)} />}
+          {(fid) => <Textarea id={fid} value={comment} onChange={(e) => setComment(e.target.value)} data-testid="sendback-comment" />}
         </FormField>
       </Modal>
 
@@ -255,24 +335,26 @@ export function ActionPanel({ detail, onChanged, onOpenCorrection }: { detail: R
       <Modal
         open={dlg === 'reject'}
         onClose={close}
+        testId="reject-dialog"
         title={t('requests.action.rejectTitle')}
         footer={
           <>
+            <Button variant="danger" loading={reject.isPending} disabled={!comment.trim()} onClick={() => reject.mutate()} data-testid="reject-confirm">
+              {t('requests.action.reject')}
+            </Button>
             <Button variant="secondary" onClick={close}>
               {t('common.cancel')}
-            </Button>
-            <Button variant="danger" loading={reject.isPending} disabled={!comment.trim()} onClick={() => reject.mutate()}>
-              {t('requests.action.reject')}
             </Button>
           </>
         }
       >
-        <p className="mb-2 text-sm text-red-700">{t('requests.action.rejectWarn')}</p>
-        <FormField label={t('requests.action.reasonRequired')} required>
-          {(fid) => <Textarea id={fid} value={comment} onChange={(e) => setComment(e.target.value)} />}
-        </FormField>
+        <div className="space-y-4">
+          <Banner tone="danger">{t('requests.action.rejectWarn')}</Banner>
+          <FormField label={t('requests.action.reasonRequired')} required>
+            {(fid) => <Textarea id={fid} value={comment} onChange={(e) => setComment(e.target.value)} data-testid="reject-reason" />}
+          </FormField>
+        </div>
       </Modal>
-
-    </Card>
+    </>
   );
 }

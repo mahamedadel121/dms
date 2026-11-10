@@ -6,6 +6,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { FormField, Select, Textarea } from '@/components/ui/Fields';
+import { Icon } from '@/components/ui/Icon';
 import { Modal } from '@/components/ui/Modal';
 import { useTr } from '../common/useTr';
 import { categoryLabel } from './helpers';
@@ -78,22 +79,23 @@ export function CorrectionModal({
       open={open}
       onClose={onClose}
       size="lg"
+      testId="correction-dialog"
       title={t('requests.correction.title')}
       footer={
         <>
+          <Button loading={send.isPending} disabled={!valid} onClick={() => send.mutate()} data-testid="correction-send">
+            {t('requests.correction.send')}
+          </Button>
           <Button variant="secondary" onClick={onClose}>
             {t('common.cancel')}
-          </Button>
-          <Button loading={send.isPending} disabled={!valid} onClick={() => send.mutate()}>
-            {t('requests.correction.send')}
           </Button>
         </>
       }
     >
-      <p className="mb-3 text-sm text-slate-600">{t('requests.correction.hint')}</p>
+      <p className="mb-3 text-sm text-ink-2">{t('requests.correction.hint')}</p>
       <div className="space-y-4">
         {items.map((it, i) => (
-          <div key={i} className="space-y-2 rounded-lg border border-slate-200 p-3">
+          <div key={i} className="space-y-2 rounded-lg border border-hairline bg-surface-2 p-3">
             <div className="grid gap-2 sm:grid-cols-3">
               <FormField label={t('requests.correction.target')}>
                 {(id) => <Select id={id} value={it.target} onChange={(v) => upd(i, { target: v })} options={targets} />}
@@ -123,13 +125,13 @@ export function CorrectionModal({
               {(id) => <Textarea id={id} rows={2} value={it.comment} onChange={(e) => upd(i, { comment: e.target.value })} />}
             </FormField>
             {items.length > 1 && (
-              <Button size="sm" variant="ghost" icon={<Trash2 className="h-4 w-4" />} onClick={() => setItems((l) => l.filter((_, j) => j !== i))}>
+              <Button size="sm" variant="ghost" icon={<Icon as={Trash2} size={16} />} onClick={() => setItems((l) => l.filter((_, j) => j !== i))}>
                 {t('common.remove')}
               </Button>
             )}
           </div>
         ))}
-        <Button size="sm" variant="secondary" icon={<Plus className="h-4 w-4" />} onClick={() => setItems((l) => [...l, blank()])}>
+        <Button size="sm" variant="secondary" icon={<Icon as={Plus} size={16} />} onClick={() => setItems((l) => [...l, blank()])}>
           {t('requests.correction.addItem')}
         </Button>
       </div>

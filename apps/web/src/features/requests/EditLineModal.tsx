@@ -7,7 +7,7 @@ import { api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { FormField, Input, Select, Textarea } from '@/components/ui/Fields';
 import { Modal } from '@/components/ui/Modal';
-import { formatEgp } from '@/lib/format';
+import { Money } from '@/components/ui/Num';
 import { useTr } from '../common/useTr';
 import { categoryLabel } from './helpers';
 import type { LineDto, RequestDetail } from '../types';
@@ -89,22 +89,24 @@ export function EditLineModal({
       title={t('requests.edit.title', { n: line.lineNo })}
       footer={
         <>
+          <Button loading={save.isPending} onClick={submit} data-testid="edit-save">
+            {t('common.save')}
+          </Button>
           <Button variant="secondary" onClick={onClose}>
             {t('common.cancel')}
-          </Button>
-          <Button loading={save.isPending} onClick={submit}>
-            {t('common.save')}
           </Button>
         </>
       }
     >
       <div className="space-y-3">
-        <p className="rounded-md bg-slate-50 p-2 text-sm text-slate-700">
-          {t('requests.edit.original')}: <b className="tabular-nums">{formatEgp(line.originalAmount, locale)}</b> — {categoryLabel(line.originalCategory, locale)}
+        <p className="flex flex-wrap items-center gap-2 rounded bg-surface-2 p-2 text-sm text-ink-2">
+          <span>{t('requests.edit.original')}:</span>
+          <Money value={line.originalAmount} size="md" />
+          <span>— {categoryLabel(line.originalCategory, locale)}</span>
         </p>
         {my.editAmounts && (
           <FormField label={t('requests.edit.amount')}>
-            {(id) => <Input id={id} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />}
+            {(id) => <Input id={id} numeric value={amount} onChange={(e) => setAmount(e.target.value)} data-testid="edit-amount" />}
           </FormField>
         )}
         {my.reclassify && (
@@ -124,9 +126,9 @@ export function EditLineModal({
           </FormField>
         )}
         <FormField label={t('requests.edit.reason')} required error={err}>
-          {(id) => <Textarea id={id} value={reason} onChange={(e) => setReason(e.target.value)} />}
+          {(id) => <Textarea id={id} value={reason} onChange={(e) => setReason(e.target.value)} data-testid="edit-reason" />}
         </FormField>
-        <p className="text-xs text-slate-500">{t('requests.edit.note')}</p>
+        <p className="text-xs text-ink-3">{t('requests.edit.note')}</p>
       </div>
     </Modal>
   );
