@@ -1,21 +1,16 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowRight, ArrowUp, Eye, FileText, Plus, Save, Send, Upload } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronDown, FileText, Plus, RefreshCw, Save, Send } from 'lucide-react';
 import { templateConfigSchema, type TemplateConfig } from '@dms/shared';
 import { API_BASE, api, errorMessage, tokens } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { formatDateTime } from '@/lib/format';
-import { Badge, Card, ErrorBlock, LoadingBlock, PageHeader } from '@/components/ui/Display';
-import { Button } from '@/components/ui/Button';
-import { Checkbox, FormField, Input, Select } from '@/components/ui/Fields';
-import { useToast } from '@/components/ui/Toast';
+import { Banner, Button, Card, Checkbox, Code, DateText, ErrorBlock, FileDrop, FormField, Icon, IconButton, Input, LoadingBlock, Page, PageHeader, SegmentedControl, Select, StatusChip, Switch, useToast } from '@/components/ui';
 import { useTr } from '../common/useTr';
 import type { TemplateDto, TemplateVersionDto } from '../types';
 
-const vTone = { DRAFT: 'amber', ACTIVE: 'green', ARCHIVED: 'gray' } as const;
+const A4_WIDTH = 794;
 
 const BASE_COLUMNS = ['category', 'originalAmount', 'amount', 'quantity', 'unitPrice', 'note'] as const;
 const KNOWN_HEADER = ['requestNumber', 'submittedAt', 'submitterName', 'vehicleNumber', 'vehicleType', 'costCenter', 'odometer'];
@@ -79,10 +74,12 @@ export function TemplateEditorPage({ id }: { id: string }) {
 
   const [cfg, setCfg] = useState<TemplateConfig>(DEFAULT_CONFIG);
   const [dirty, setDirty] = useState(false);
+  const [layoutKey, setLayoutKey] = useState('generic-request');
   useEffect(() => {
     if (current) {
       const parsed = templateConfigSchema.safeParse(current.config);
       setCfg(parsed.success ? parsed.data : DEFAULT_CONFIG);
+      setLayoutKey(current.layoutKey);
       setDirty(false);
     }
   }, [current?.id, tpl.dataUpdatedAt]);
@@ -98,7 +95,7 @@ export function TemplateEditorPage({ id }: { id: string }) {
     await qc.invalidateQueries({ queryKey: ['templates'] });
   };
   const save = useMutation({
-    mutationFn: () => api.put(`/template-versions/${versionId}`, { config: cfg, layoutKey: current?.layoutKey }),
+    mutationFn: () => api.put(`/template-versions/${versionId}`, { config: cfg, layoutKey }),
     onSuccess: async () => {
       toast.success(t('templates.saved'));
       await refresh();
@@ -107,7 +104,7 @@ export function TemplateEditorPage({ id }: { id: string }) {
   });
   const publish = useMutation({
     mutationFn: async () => {
-      await api.put(`/template-versions/${versionId}`, { config: cfg, layoutKey: current?.layoutKey });
+      await api.put(`/template-versions/${versionId}`, { config: cfg, layoutKey });
       return api.post(`/template-versions/${versionId}/publish`);
     },
     onSuccess: async () => {
@@ -131,6 +128,7 @@ export function TemplateEditorPage({ id }: { id: string }) {
   const [pvErr, setPvErr] = useState<string | null>(null);
   const [pvBusy, setPvBusy] = useState(false);
   const seq = useRef(0);
+  const [reload, setReload] = useState(0);
   useEffect(() => {
     if (!versionId || !check.success) return;
     const my = ++seq.current;
@@ -150,7 +148,7 @@ export function TemplateEditorPage({ id }: { id: string }) {
       }
     }, 600);
     return () => clearTimeout(h);
-  }, [versionId, JSON.stringify(cfg)]);
+  }, [versionId, JSON.stringify(cfg), reload]);
 
   const openPdf = async () => {
     try {
@@ -173,6 +171,44 @@ export function TemplateEditorPage({ id }: { id: string }) {
     }
   };
 
+  // ---- identity (names PATCH on blur, flags PATCH on toggle) ----
+  const [nameAr, setNameAr] = useState('');
+  const [nameEn, setNameEn] = useState('');
+  useEffect(() => {
+    if (tpl.data) {
+      setNameAr(tpl.data.nameAr);
+      setNameEn(tpl.data.nameEn);
+    }
+  }, [tpl.data?.nameAr, tpl.data?.nameEn]);
+  const meta = useMutation({
+    mutationFn: (body: { nameAr?: string; nameEn?: string; isDefault?: boolean; isActive?: boolean }) => api.patch(`/templates/${id}`, body),
+    onSuccess: async () => {
+      toast.success(t('templates.metaSaved'));
+      await qc.invalidateQueries({ queryKey: ['template', id] });
+      await qc.invalidateQueries({ queryKey: ['templates'] });
+    },
+    onError: (e) => toast.error(e),
+  });
+  const saveName = (field: 'nameAr' | 'nameEn', value: string) => {
+    const v = value.trim();
+    if (!tpl.data || !v || v === tpl.data[field]) return;
+    meta.mutate({ [field]: v });
+  };
+
+  // ---- scaled A4 preview ----
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(0.5);
+  const [showPreview, setShowPreview] = useState(false);
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth > 0) setScale(el.clientWidth / A4_WIDTH);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [tpl.isLoading, showPreview]);
+
   if (tpl.isLoading) return <LoadingBlock />;
   if (tpl.isError || !tpl.data) return <ErrorBlock message={errorMessage(tpl.error)} />;
 
@@ -185,13 +221,44 @@ export function TemplateEditorPage({ id }: { id: string }) {
     set({ [k]: l } as Partial<TemplateConfig>);
   };
   const colLabel = (key: string) => (key.startsWith('extra.') ? key : t(`templates.col.${key}`));
+  const tname = (x: { nameAr: string; nameEn: string }) => (locale === 'ar' ? x.nameAr : x.nameEn || x.nameAr);
+
+  const previewCard = (
+    <Card
+      title={t('templates.preview')}
+      padded={false}
+      actions={
+        <div className="flex items-center gap-1">
+          <IconButton icon={<Icon as={RefreshCw} size={16} />} label={t('templates.refresh')} data-testid="tpl-preview-refresh" onClick={() => setReload((n) => n + 1)} />
+          <Button size="sm" variant="secondary" icon={<Icon as={FileText} size={16} />} disabled={!check.success} onClick={() => void openPdf()}>
+            {t('templates.previewPdf')}
+          </Button>
+        </div>
+      }
+    >
+      {pvErr && (
+        <div className="p-3">
+          <ErrorBlock message={pvErr} />
+        </div>
+      )}
+      <div className="p-3">
+        <div ref={boxRef} dir="ltr" className="relative aspect-[210/297] w-full overflow-hidden rounded border border-hairline bg-white">
+          <iframe
+            title={t('templates.preview')}
+            data-testid="tpl-preview-frame"
+            sandbox=""
+            srcDoc={html}
+            style={{ width: A4_WIDTH, height: Math.round((A4_WIDTH * 297) / 210), transform: `scale(${scale})`, transformOrigin: 'top left', left: 0, top: 0 }}
+            className={`absolute border-0 bg-white ${pvBusy ? 'opacity-70' : ''}`}
+          />
+        </div>
+      </div>
+    </Card>
+  );
 
   return (
-    <div className="space-y-4">
-      <Link href="/templates" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800">
-        <ArrowRight className="h-4 w-4 rtl:rotate-0 ltr:rotate-180" aria-hidden /> {t('templates.back')}
-      </Link>
-      <PageHeader title={locale === 'ar' ? tpl.data.nameAr : tpl.data.nameEn || tpl.data.nameAr} subtitle={tpl.data.code} />
+    <Page testId="page-template-editor" width="wide" className="pb-4">
+      <PageHeader back={{ href: '/templates', label: t('templates.back') }} title={tname(tpl.data)} subtitle={<Code>{tpl.data.code}</Code>} />
 
       <Card title={t('templates.versions')}>
         <div className="flex flex-wrap items-center gap-2">
@@ -203,60 +270,76 @@ export function TemplateEditorPage({ id }: { id: string }) {
                 if (dirty && !window.confirm(t('templates.discardChanges'))) return;
                 setVersionId(v.id);
               }}
-              className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm ${v.id === versionId ? 'border-brand-700 bg-brand-50 ring-1 ring-brand-700' : 'border-slate-300 bg-white hover:bg-slate-50'}`}
+              className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm ${v.id === versionId ? 'border-primary bg-primary-tint ring-1 ring-primary' : 'border-line bg-surface hover:bg-surface-2'}`}
             >
-              <b>v{v.version}</b>
-              <Badge tone={vTone[v.status]}>{t(`workflows.status.${v.status}`)}</Badge>
-              {v.publishedAt && <span className="text-xs text-slate-500">{formatDateTime(v.publishedAt)}</span>}
+              <b className="num">v{v.version}</b>
+              <StatusChip kind="version" status={v.status} size="sm" label={t(`workflows.status.${v.status}`)} />
+              {v.publishedAt && <DateText value={v.publishedAt} className="text-xs text-ink-3" />}
             </button>
           ))}
-          {canManage && (
-            <Button size="sm" variant="secondary" icon={<Plus className="h-4 w-4" />} disabled={hasDraft} loading={draft.isPending} onClick={() => draft.mutate()}>
-              {t('templates.newDraft')}
-            </Button>
-          )}
         </div>
+        {current && current.status !== 'DRAFT' && (
+          <Banner tone="info" className="mt-3">
+            {t('workflows.readOnlyHint')}
+          </Banner>
+        )}
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <div className="space-y-4">
-          {!readOnly && (
-            <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" icon={<Save className="h-4 w-4" />} loading={save.isPending} disabled={!dirty || !check.success} onClick={() => save.mutate()}>
-                {t('common.save')}
-              </Button>
-              <Button icon={<Send className="h-4 w-4" />} loading={publish.isPending} disabled={!check.success} onClick={() => publish.mutate()}>
-                {t('templates.publish')}
-              </Button>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(420px,5fr)]">
+        <div className="space-y-6 max-xl:order-2">
+          <Card title={t('templates.section.identity')}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField label={t('templates.create.nameAr')}>
+                {(fid) => <Input id={fid} data-testid="tpl-meta-name-ar" disabled={!canManage} value={nameAr} onChange={(e) => setNameAr(e.target.value)} onBlur={() => saveName('nameAr', nameAr)} />}
+              </FormField>
+              <FormField label={t('templates.create.nameEn')}>
+                {(fid) => <Input id={fid} dir="ltr" data-testid="tpl-meta-name-en" disabled={!canManage} value={nameEn} onChange={(e) => setNameEn(e.target.value)} onBlur={() => saveName('nameEn', nameEn)} />}
+              </FormField>
             </div>
-          )}
-          {!check.success && <ErrorBlock message={check.error.issues[0]?.path.join('.') + ': ' + check.error.issues[0]?.message} />}
+            <div className="mt-4 flex flex-wrap gap-6">
+              <Switch checked={tpl.data.isDefault} disabled={!canManage || tpl.data.isDefault} onChange={(v) => meta.mutate({ isDefault: v })} label={t('templates.default')} />
+              <Switch checked={tpl.data.isActive} disabled={!canManage || (tpl.data.isDefault && tpl.data.isActive)} onChange={(v) => meta.mutate({ isActive: v })} label={t('templates.active')} />
+            </div>
+          </Card>
 
           <Card title={t('templates.section.titles')}>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid gap-4 sm:grid-cols-2">
               <FormField label={t('templates.titleAr')}>{(fid) => <Input id={fid} readOnly={readOnly} value={cfg.titleAr} onChange={(e) => set({ titleAr: e.target.value })} />}</FormField>
               <FormField label={t('templates.titleEn')}>{(fid) => <Input id={fid} dir="ltr" readOnly={readOnly} value={cfg.titleEn ?? ''} onChange={(e) => set({ titleEn: e.target.value })} />}</FormField>
               <FormField label={t('templates.companyName')}>{(fid) => <Input id={fid} readOnly={readOnly} value={cfg.companyNameAr ?? ''} onChange={(e) => set({ companyNameAr: e.target.value })} />}</FormField>
               <FormField label={t('templates.footerNote')}>{(fid) => <Input id={fid} readOnly={readOnly} value={cfg.footerNoteAr ?? ''} onChange={(e) => set({ footerNoteAr: e.target.value })} />}</FormField>
+            </div>
+            <div className="mt-4">
               <FormField label={t('templates.logo')} hint={cfg.logoKey ? t('templates.logoSet') : undefined}>
-                {(fid) => (
-                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50">
-                    <Upload className="h-4 w-4" />
-                    {t('templates.uploadLogo')}
-                    <input id={fid} type="file" accept="image/png,image/jpeg" className="sr-only" disabled={readOnly} onChange={(e) => e.target.files?.[0] && void uploadLogo(e.target.files[0])} />
-                  </label>
-                )}
+                <FileDrop accept="image/png,image/jpeg" disabled={readOnly} label={t('templates.uploadLogo')} onFile={(f) => void uploadLogo(f)} />
               </FormField>
             </div>
+          </Card>
+
+          <Card title={t('templates.layout.pick')}>
+            <SegmentedControl
+              size="md"
+              ariaLabel={t('templates.layout.pick')}
+              value={layoutKey}
+              onChange={(v) => {
+                if (readOnly) return;
+                setLayoutKey(v);
+                setDirty(true);
+              }}
+              items={[
+                { value: 'expense-sheet', label: t('templates.layout.expense'), testId: 'tpl-layout-expense' },
+                { value: 'generic-request', label: t('templates.layout.generic'), testId: 'tpl-layout-generic' },
+              ]}
+            />
           </Card>
 
           <Card title={t('templates.section.header')}>
             <ul className="space-y-2">
               {cfg.headerFields.map((f, i) => (
                 <li key={f.key} className="flex flex-wrap items-center gap-2">
-                  <Checkbox disabled={readOnly} checked={f.show} onChange={(v) => set({ headerFields: cfg.headerFields.map((x, j) => (j === i ? { ...x, show: v } : x)) })} />
-                  <code className="w-32 text-xs text-slate-500" dir="ltr">{f.key}</code>
-                  <Input className="h-9 flex-1 min-w-[8rem]" readOnly={readOnly} value={f.labelAr} onChange={(e) => set({ headerFields: cfg.headerFields.map((x, j) => (j === i ? { ...x, labelAr: e.target.value } : x)) })} />
+                  <Switch checked={f.show} disabled={readOnly} onChange={(v) => set({ headerFields: cfg.headerFields.map((x, j) => (j === i ? { ...x, show: v } : x)) })} />
+                  <Input className="h-9 min-w-[8rem] flex-1" aria-label={t('templates.field.label')} readOnly={readOnly} value={f.labelAr} onChange={(e) => set({ headerFields: cfg.headerFields.map((x, j) => (j === i ? { ...x, labelAr: e.target.value } : x)) })} />
+                  <Code className="w-32 text-xs text-ink-3">{f.key}</Code>
                   {!readOnly && <Mover onUp={() => moveIn('headerFields', i, -1)} onDown={() => moveIn('headerFields', i, 1)} first={i === 0} last={i === cfg.headerFields.length - 1} />}
                 </li>
               ))}
@@ -267,9 +350,9 @@ export function TemplateEditorPage({ id }: { id: string }) {
             <ul className="space-y-2">
               {cfg.lineColumns.map((c, i) => (
                 <li key={String(c.key)} className="flex flex-wrap items-center gap-2">
-                  <Checkbox disabled={readOnly} checked={c.show} onChange={(v) => set({ lineColumns: cfg.lineColumns.map((x, j) => (j === i ? { ...x, show: v } : x)) })} />
-                  <span className="w-32 text-xs text-slate-500">{colLabel(String(c.key))}</span>
-                  <Input className="h-9 flex-1 min-w-[8rem]" readOnly={readOnly} value={c.labelAr} onChange={(e) => set({ lineColumns: cfg.lineColumns.map((x, j) => (j === i ? { ...x, labelAr: e.target.value } : x)) })} />
+                  <Switch checked={c.show} disabled={readOnly} onChange={(v) => set({ lineColumns: cfg.lineColumns.map((x, j) => (j === i ? { ...x, show: v } : x)) })} />
+                  <Input className="h-9 min-w-[8rem] flex-1" aria-label={t('templates.field.label')} readOnly={readOnly} value={c.labelAr} onChange={(e) => set({ lineColumns: cfg.lineColumns.map((x, j) => (j === i ? { ...x, labelAr: e.target.value } : x)) })} />
+                  <span className="w-32 text-xs text-ink-3">{colLabel(String(c.key))}</span>
                   {!readOnly && <Mover onUp={() => moveIn('lineColumns', i, -1)} onDown={() => moveIn('lineColumns', i, 1)} first={i === 0} last={i === cfg.lineColumns.length - 1} />}
                 </li>
               ))}
@@ -280,7 +363,7 @@ export function TemplateEditorPage({ id }: { id: string }) {
             <div className="space-y-3">
               <Checkbox disabled={readOnly} checked={cfg.showOriginalValues} onChange={(v) => set({ showOriginalValues: v })} label={t('templates.showOriginal')} />
               <Checkbox disabled={readOnly} checked={cfg.showAmountInWords} onChange={(v) => set({ showAmountInWords: v })} label={t('templates.showWords')} />
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-3">
                 <FormField label={t('templates.sigPerRow')}>
                   {(fid) => (
                     <Select
@@ -299,30 +382,44 @@ export function TemplateEditorPage({ id }: { id: string }) {
                   <Checkbox disabled={readOnly} checked={cfg.signature.showDateTime} onChange={(v) => set({ signature: { ...cfg.signature, showDateTime: v } })} label={t('templates.sigDateTime')} />
                 </div>
               </div>
-              <p className="text-xs text-slate-500">{t('templates.sigAutoHint')}</p>
+              <p className="text-xs text-ink-3">{t('templates.sigAutoHint')}</p>
+              {!check.success && <ErrorBlock message={`${check.error.issues[0]?.path.join('.')}: ${check.error.issues[0]?.message}`} />}
             </div>
           </Card>
         </div>
 
-        <div className="xl:sticky xl:top-4 xl:self-start">
-          <Card
-            title={t('templates.preview')}
-            actions={
-              <Button size="sm" variant="secondary" icon={<FileText className="h-4 w-4" />} disabled={!check.success} onClick={() => void openPdf()}>
-                {t('templates.previewPdf')}
-              </Button>
-            }
-            padded={false}
-          >
-            {pvErr && <div className="p-3"><ErrorBlock message={pvErr} /></div>}
-            <div className="relative">
-              {pvBusy && <span className="absolute end-2 top-2 z-10 rounded bg-white/90 px-2 py-0.5 text-xs text-slate-500"><Eye className="inline h-3 w-3" /> …</span>}
-              <iframe title={t('templates.preview')} sandbox="" srcDoc={html} className="h-[70vh] w-full rounded-b-xl bg-white" />
-            </div>
-          </Card>
+        <div className="max-xl:order-1 xl:sticky xl:top-[84px] xl:self-start">
+          <div className="mb-3 xl:hidden">
+            <Button variant="secondary" block icon={<Icon as={ChevronDown} size={16} className={showPreview ? 'rotate-180' : ''} />} onClick={() => setShowPreview((o) => !o)}>
+              {t('templates.previewToggle')}
+            </Button>
+          </div>
+          <div className={showPreview ? '' : 'max-xl:hidden'}>{previewCard}</div>
         </div>
       </div>
-    </div>
+
+      <div className="sticky bottom-0 z-bar -mx-4 flex flex-wrap items-center gap-3 border-t border-hairline bg-surface px-4 py-3 sm:mx-0 sm:rounded-lg sm:border" data-testid="tpl-footer">
+        {current && <StatusChip kind="version" status={current.status} label={`v${current.version} ${t(`workflows.status.${current.status}`)}`} />}
+        {dirty && <span className="text-sm text-warning">{t('templates.unsaved')}</span>}
+        <div className="ms-auto flex flex-wrap gap-2">
+          {canManage && (
+            <Button variant="ghost" icon={<Icon as={Plus} size={16} />} disabled={hasDraft} loading={draft.isPending} onClick={() => draft.mutate()}>
+              {t('templates.newDraft')}
+            </Button>
+          )}
+          {!readOnly && (
+            <>
+              <Button variant="secondary" data-testid="tpl-save" icon={<Icon as={Save} size={16} />} loading={save.isPending} disabled={!dirty || !check.success} onClick={() => save.mutate()}>
+                {t('templates.save')}
+              </Button>
+              <Button data-testid="tpl-publish" icon={<Icon as={Send} size={16} />} loading={publish.isPending} disabled={!check.success} onClick={() => publish.mutate()}>
+                {t('templates.publish')}
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+    </Page>
   );
 }
 

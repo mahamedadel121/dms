@@ -78,5 +78,6 @@ const dict: Dict = {
   'field.show': 'Show',
   'field.label': 'Label',
   'noTypeName': 'Request type',
+  'menu.more': 'More',
 };
 export default dict;

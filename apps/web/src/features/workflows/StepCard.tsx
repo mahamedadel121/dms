@@ -20,6 +20,7 @@ export function StepCard({
   readOnly,
   groups,
   roleLabel,
+  description,
   onChange,
   onMove,
   onRemove,
@@ -32,6 +33,7 @@ export function StepCard({
   readOnly: boolean;
   groups: string[];
   roleLabel: string;
+  description?: string;
   onChange: (patch: Partial<EditableStep>) => void;
   onMove: (dir: -1 | 1) => void;
   onRemove: () => void;
@@ -47,54 +49,72 @@ export function StepCard({
   const name = (locale === 'ar' ? step.nameAr : step.nameEn) || step.nameAr || step.nameEn || step.key;
   const bad = issues.length > 0;
 
+  const conditional = step.condition.type !== 'ALWAYS';
   return (
-    <li
+    <div
       ref={setNodeRef}
       style={style}
-      className={cn('rounded-xl border bg-white shadow-sm', bad ? 'border-red-300' : 'border-slate-200', isDragging && 'z-10 opacity-80 shadow-lg')}
+      data-testid="wf-step"
+      data-key={step.key}
+      className={cn('rounded-lg border bg-surface shadow-card', bad ? 'border-danger' : 'border-hairline', isDragging && 'z-10 opacity-80 shadow-pop')}
     >
       <div className="flex flex-wrap items-center gap-2 p-3">
+        <span
+          className={cn(
+            'num flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
+            conditional ? 'border-2 border-dashed border-primary bg-surface text-primary' : 'bg-primary text-on-primary',
+          )}
+        >
+          {index + 1}
+        </span>
         {!readOnly && (
-          <button type="button" className="cursor-grab touch-none rounded p-1 text-slate-400 hover:bg-slate-100" aria-label={t('workflows.step.drag')} {...attributes} {...listeners}>
+          <button type="button" className="cursor-grab touch-none rounded p-1 text-ink-3 hover:bg-surface-2" aria-label={t('workflows.step.drag')} {...attributes} {...listeners}>
             <GripVertical className="h-5 w-5" />
           </button>
         )}
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-700 text-xs font-bold text-white">{index + 1}</span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-bold text-slate-900">{name}</span>
-            {step.kind === 'PAYMENT' && <Badge tone="green">{t('workflows.step.payment')}</Badge>}
-            {step.stepType === 'DYNAMIC_CATEGORY_ROLES' && <Badge tone="purple">{t('workflows.step.dynamic')}</Badge>}
+            <span className="text-base font-medium text-ink">{name}</span>
+            {step.kind === 'PAYMENT' && <Badge tone="green">{t('workflows.badge.payment')}</Badge>}
+            {step.stepType === 'DYNAMIC_CATEGORY_ROLES' && <Badge tone="purple">{t('workflows.badge.dynamic')}</Badge>}
             {step.parallelGroup && (
               <Badge tone="blue" className="gap-1">
                 <Layers className="h-3 w-3" aria-hidden />
-                {step.parallelGroup}
+                {t('workflows.badge.parallel')} {step.parallelGroup}
               </Badge>
             )}
-            {step.condition.type !== 'ALWAYS' && <Badge tone="amber">{t('workflows.step.conditional')}</Badge>}
+            {conditional && <Badge tone="amber">{t('workflows.badge.conditional')}</Badge>}
           </div>
-          <p className="truncate text-xs text-slate-500">{step.stepType === 'ROLE' ? roleLabel || t('workflows.step.noRole') : t('workflows.step.fromExpenseTypes')}</p>
+          <p className="truncate text-xs text-ink-3">{step.stepType === 'ROLE' ? roleLabel || t('workflows.step.noRole') : t('workflows.step.fromExpenseTypes')}</p>
+          {description && <p className="mt-0.5 text-13 text-ink-2">{description}</p>}
         </div>
         {!readOnly && (
           <div className="flex items-center gap-1">
             <Button size="sm" variant="ghost" disabled={index === 0} onClick={() => onMove(-1)} aria-label={t('workflows.step.up')} icon={<ArrowUp className="h-4 w-4" />} />
             <Button size="sm" variant="ghost" disabled={index === total - 1} onClick={() => onMove(1)} aria-label={t('workflows.step.down')} icon={<ArrowDown className="h-4 w-4" />} />
-            <Button size="sm" variant="ghost" onClick={onRemove} aria-label={t('common.remove')} icon={<Trash2 className="h-4 w-4 text-red-600" />} />
+            <Button size="sm" variant="ghost" onClick={onRemove} aria-label={t('common.remove')} icon={<Trash2 className="h-4 w-4 text-danger" />} />
           </div>
         )}
-        <Button size="sm" variant="secondary" onClick={() => setOpen((o) => !o)} icon={open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}>
+        <Button
+          size="sm"
+          variant="secondary"
+          aria-expanded={open}
+          data-testid="wf-step-toggle"
+          onClick={() => setOpen((o) => !o)}
+          icon={open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        >
           {t('workflows.step.details')}
         </Button>
       </div>
       {bad && (
-        <ul className="px-4 pb-2 text-xs text-red-700">
+        <ul className="px-4 pb-2 text-xs text-danger">
           {issues.map((i, k) => (
             <li key={k}>• {t(`workflows.issue.${i.code}`)}</li>
           ))}
         </ul>
       )}
       {open && (
-        <div className="space-y-4 border-t border-slate-100 p-4">
+        <div className="space-y-4 border-t border-hairline p-4">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <FormField label={t('workflows.step.nameAr')} required>
               {(id) => <Input id={id} readOnly={readOnly} value={step.nameAr} onChange={(e) => onChange({ nameAr: e.target.value })} />}
@@ -167,7 +187,7 @@ export function StepCard({
           </div>
 
           <fieldset>
-            <legend className="mb-1 text-sm font-semibold text-slate-700">{t('workflows.step.actions')}</legend>
+            <legend className="mb-1 text-sm font-semibold text-ink-2">{t('workflows.step.actions')}</legend>
             <div className="flex flex-wrap gap-x-6 gap-y-2">
               {ALL_ACTIONS.map((a) => (
                 <Checkbox
@@ -182,7 +202,7 @@ export function StepCard({
           </fieldset>
 
           <fieldset>
-            <legend className="mb-1 text-sm font-semibold text-slate-700">{t('workflows.step.checklist')}</legend>
+            <legend className="mb-1 text-sm font-semibold text-ink-2">{t('workflows.step.checklist')}</legend>
             <div className="space-y-2">
               {step.checklist.map((c, i) => (
                 <div key={i} className="flex flex-wrap items-center gap-2">
@@ -202,11 +222,11 @@ export function StepCard({
           </fieldset>
 
           <fieldset>
-            <legend className="mb-1 text-sm font-semibold text-slate-700">{t('workflows.step.condition')}</legend>
+            <legend className="mb-1 text-sm font-semibold text-ink-2">{t('workflows.step.condition')}</legend>
             <ConditionEditor key={step.uid} value={step.condition} readOnly={readOnly} onChange={(c) => onChange({ condition: c })} />
           </fieldset>
         </div>
       )}
-    </li>
+    </div>
   );
 }

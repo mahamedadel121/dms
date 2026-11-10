@@ -1,27 +1,21 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { DndContext, KeyboardSensor, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { ArrowRight, FlaskConical, Plus, Save, Send, Trash2 } from 'lucide-react';
+import { FlaskConical, Plus, Save, Send, Trash2 } from 'lucide-react';
 import type { RequestTypeDto } from '@dms/shared';
 import { api, errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import { formatDateTime } from '@/lib/format';
-import { Badge, Card, ErrorBlock, LoadingBlock, PageHeader } from '@/components/ui/Display';
-import { Button } from '@/components/ui/Button';
-import { Checkbox, FormField, Input } from '@/components/ui/Fields';
-import { ConfirmDialog } from '@/components/ui/Modal';
-import { useToast } from '@/components/ui/Toast';
-import { useLookup } from '@/components/ui/Inputs2';
+import { formatEgp } from '@/lib/format';
+import { Badge, Banner, Button, Card, Checkbox, Code, ConfirmDialog, DateText, ErrorBlock, FormField, Input, LoadingBlock, Page, PageHeader, StatusChip, useLookup, useToast } from '@/components/ui';
 import { useTr } from '../common/useTr';
 import type { WorkflowDto, WorkflowStepDto, WorkflowVersionDto } from '../types';
 import { StepCard } from './StepCard';
+import { describeCondition } from './describe';
+import { countApplicable, extractApplicable, type SimulationResult } from './preview';
 import { blankStep, fromDto, moveStep, toInput, validateSteps, type EditableStep } from './stepModel';
-
-const vTone = { DRAFT: 'amber', ACTIVE: 'green', ARCHIVED: 'gray' } as const;
 
 export function WorkflowEditorPage({ id }: { id: string }) {
   const { t, locale } = useTr();
@@ -56,6 +50,9 @@ export function WorkflowEditorPage({ id }: { id: string }) {
     }
   }, [ver.data]);
 
+  const requestTypeId = wf.data?.requestTypeId ?? '';
+  const type = useQuery({ queryKey: ['request-type', requestTypeId], enabled: !!requestTypeId, queryFn: () => api.get<RequestTypeDto>(`/request-types/${requestTypeId}`), staleTime: 60_000 });
+  const categoryNames = useMemo(() => Object.fromEntries((type.data?.lineCategories ?? []).map((c) => [c.code, locale === 'ar' ? c.nameAr : c.nameEn || c.nameAr])), [type.data, locale]);
   const roles = useLookup('roles');
   const roleName = (rid: string) => roles.data?.find((r) => r.id === rid)?.label ?? '';
 
@@ -133,167 +130,251 @@ export function WorkflowEditorPage({ id }: { id: string }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const hasDraft = versions.some((v) => v.status === 'DRAFT');
 
+  const [sim, setSim] = useState<SimulationResult | null>(null);
+  useEffect(() => {
+    setSim(null);
+  }, [versionId]);
+
   if (wf.isLoading) return <LoadingBlock />;
   if (wf.isError || !wf.data) return <ErrorBlock message={errorMessage(wf.error)} />;
 
+  const describeCtx = { categoryNames, money: (v: string) => formatEgp(v, locale) };
+  const renderStep = (s: EditableStep, i: number) => (
+    <StepCard
+      key={s.uid}
+      step={s}
+      index={i}
+      total={steps.length}
+      issues={issueFor(i)}
+      readOnly={readOnly}
+      groups={groups}
+      roleLabel={roleName(s.roleId)}
+      description={describeCondition(s.condition, t, describeCtx)}
+      onChange={(p) => update(s.uid, p)}
+      onMove={(d) => move(i, i + d)}
+      onRemove={() => {
+        setSteps((l) => l.filter((x) => x.uid !== s.uid));
+        setDirty(true);
+      }}
+      onGroupWithPrev={() => groupWithPrev(i)}
+    />
+  );
+  // consecutive steps sharing a parallelGroup are drawn inside one dashed container
+  const runs: { group: string; items: { s: EditableStep; i: number }[] }[] = [];
+  steps.forEach((s, i) => {
+    const g = s.parallelGroup.trim();
+    const last = runs[runs.length - 1];
+    if (g && last && last.group === g) last.items.push({ s, i });
+    else runs.push({ group: g, items: [{ s, i }] });
+  });
+  const name = locale === 'ar' ? wf.data.nameAr : wf.data.nameEn || wf.data.nameAr;
+
   return (
-    <div className="space-y-4">
-      <Link href="/workflows" className="inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800">
-        <ArrowRight className="h-4 w-4 rtl:rotate-0 ltr:rotate-180" aria-hidden /> {t('workflows.back')}
-      </Link>
-      <PageHeader title={locale === 'ar' ? wf.data.nameAr : wf.data.nameEn || wf.data.nameAr} subtitle={wf.data.requestTypeCode} />
+    <Page testId="page-workflow-editor" width="wide">
+      <PageHeader
+        back={{ href: '/workflows', label: t('workflows.back') }}
+        title={name}
+        subtitle={<Code>{wf.data.requestTypeCode}</Code>}
+        actions={
+          canManage && (
+            <>
+              <Button variant="secondary" data-testid="wf-new-draft" icon={<Plus className="h-4 w-4" />} loading={draft.isPending} disabled={hasDraft} onClick={() => draft.mutate()}>
+                {t('workflows.newDraft')}
+              </Button>
+              {!readOnly && (
+                <>
+                  <Button variant="danger-outline" data-testid="wf-delete-draft" icon={<Trash2 className="h-4 w-4" />} onClick={() => setConfirmDelete(true)}>
+                    {t('workflows.deleteDraft')}
+                  </Button>
+                  <Button variant="secondary" data-testid="wf-save" icon={<Save className="h-4 w-4" />} loading={save.isPending} disabled={!dirty} onClick={() => save.mutate()}>
+                    {t('common.save')}
+                  </Button>
+                  <Button data-testid="wf-publish" icon={<Send className="h-4 w-4" />} disabled={issues.length > 0} onClick={() => setConfirmPublish(true)}>
+                    {t('workflows.publish')}
+                  </Button>
+                </>
+              )}
+            </>
+          )
+        }
+      />
 
-      <Card title={t('workflows.versions')}>
-        <div className="flex flex-wrap items-center gap-2">
-          {versions.map((v) => (
-            <button
-              key={v.id}
-              type="button"
-              onClick={() => {
-                if (dirty && !window.confirm(t('workflows.discardChanges'))) return;
-                setVersionId(v.id);
-              }}
-              className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm ${v.id === versionId ? 'border-brand-700 bg-brand-50 ring-1 ring-brand-700' : 'border-slate-300 bg-white hover:bg-slate-50'}`}
-            >
-              <b>v{v.version}</b>
-              <Badge tone={vTone[v.status]}>{t(`workflows.status.${v.status}`)}</Badge>
-              {v.publishedAt && <span className="text-xs text-slate-500">{formatDateTime(v.publishedAt)}</span>}
-            </button>
-          ))}
-          {canManage && (
-            <Button size="sm" variant="secondary" icon={<Plus className="h-4 w-4" />} loading={draft.isPending} disabled={hasDraft} onClick={() => draft.mutate()}>
-              {t('workflows.newDraft')}
-            </Button>
-          )}
-        </div>
-        {current && current.status !== 'DRAFT' && <p className="mt-2 text-xs text-slate-500">{t('workflows.readOnlyHint')}</p>}
-      </Card>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="min-w-0 space-y-6">
+          <Card title={t('workflows.versions')}>
+            <div className="flex flex-wrap items-center gap-2">
+              {versions.map((v) => (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => {
+                    if (dirty && !window.confirm(t('workflows.discardChanges'))) return;
+                    setVersionId(v.id);
+                  }}
+                  className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm ${v.id === versionId ? 'border-primary bg-primary-tint ring-1 ring-primary' : 'border-line bg-surface hover:bg-surface-2'}`}
+                >
+                  <b className="num">v{v.version}</b>
+                  <StatusChip kind="version" status={v.status} size="sm" label={t(`workflows.status.${v.status}`)} />
+                  {v.publishedAt && <DateText value={v.publishedAt} className="text-xs text-ink-3" />}
+                </button>
+              ))}
+            </div>
+            {current && current.status !== 'DRAFT' && (
+              <Banner tone="info" className="mt-3">
+                {t('workflows.readOnlyHint')}
+              </Banner>
+            )}
+            <div className="mt-3">
+              <FormField label={t('workflows.note')}>
+                {(fid) => (
+                  <Input
+                    id={fid}
+                    readOnly={readOnly}
+                    value={note}
+                    onChange={(e) => {
+                      setNote(e.target.value);
+                      setDirty(true);
+                    }}
+                  />
+                )}
+              </FormField>
+            </div>
+          </Card>
 
-      {ver.isLoading ? (
-        <LoadingBlock />
-      ) : (
-        <>
-          <div className="flex flex-wrap items-end gap-3">
-            <FormField label={t('workflows.note')} className="min-w-[16rem] flex-1">
-              {(fid) => <Input id={fid} readOnly={readOnly} value={note} onChange={(e) => { setNote(e.target.value); setDirty(true); }} />}
-            </FormField>
-            {!readOnly && (
-              <div className="flex flex-wrap gap-2 pb-0.5">
-                <Button variant="secondary" icon={<Plus className="h-4 w-4" />} onClick={() => { setSteps((l) => [...l, blankStep(l.map((s) => s.key))]); setDirty(true); }}>
+          {ver.isLoading ? (
+            <LoadingBlock />
+          ) : (
+            <section aria-label={t('workflows.route')} className="space-y-3">
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+                <SortableContext items={steps.map((s) => s.uid)} strategy={verticalListSortingStrategy}>
+                  <ol className="relative space-y-3 before:absolute before:inset-y-3 before:start-[25px] before:w-0.5 before:bg-hairline">
+                    {runs.map((r) =>
+                      r.group && r.items.length > 1 ? (
+                        <li key={r.items[0]!.s.uid} className="relative rounded-lg border border-dashed border-line bg-canvas p-2">
+                          <p className="mb-2 px-1 text-xs font-medium text-ink-3">
+                            {t('workflows.parallelGroup')} <Code>{r.group}</Code>
+                          </p>
+                          <div className="space-y-2">{r.items.map(({ s, i }) => renderStep(s, i))}</div>
+                        </li>
+                      ) : (
+                        <li key={r.items[0]!.s.uid} className="relative">
+                          {renderStep(r.items[0]!.s, r.items[0]!.i)}
+                        </li>
+                      ),
+                    )}
+                  </ol>
+                </SortableContext>
+              </DndContext>
+              {!readOnly && (
+                <Button
+                  variant="secondary"
+                  data-testid="wf-add-step"
+                  icon={<Plus className="h-4 w-4" />}
+                  onClick={() => {
+                    setSteps((l) => [...l, blankStep(l.map((s) => s.key))]);
+                    setDirty(true);
+                  }}
+                >
                   {t('workflows.addStep')}
                 </Button>
-                <Button variant="secondary" icon={<Save className="h-4 w-4" />} loading={save.isPending} disabled={!dirty} onClick={() => save.mutate()}>
-                  {t('common.save')}
-                </Button>
-                <Button icon={<Send className="h-4 w-4" />} disabled={issues.length > 0} onClick={() => setConfirmPublish(true)}>
-                  {t('workflows.publish')}
-                </Button>
-                <Button variant="danger" icon={<Trash2 className="h-4 w-4" />} onClick={() => setConfirmDelete(true)}>
-                  {t('workflows.deleteDraft')}
-                </Button>
-              </div>
-            )}
-          </div>
+              )}
+            </section>
+          )}
+        </div>
 
-          {issues.length > 0 && !readOnly && <p className="text-sm text-red-700">{t('workflows.fixIssues', { n: issues.length })}</p>}
-
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-            <SortableContext items={steps.map((s) => s.uid)} strategy={verticalListSortingStrategy}>
-              <ol className="space-y-2">
-                {steps.map((s, i) => (
-                  <StepCard
-                    key={s.uid}
-                    step={s}
-                    index={i}
-                    total={steps.length}
-                    issues={issueFor(i)}
-                    readOnly={readOnly}
-                    groups={groups}
-                    roleLabel={roleName(s.roleId)}
-                    onChange={(p) => update(s.uid, p)}
-                    onMove={(d) => move(i, i + d)}
-                    onRemove={() => { setSteps((l) => l.filter((x) => x.uid !== s.uid)); setDirty(true); }}
-                    onGroupWithPrev={() => groupWithPrev(i)}
-                  />
+        <aside className="space-y-6 xl:sticky xl:top-[84px] xl:self-start">
+          {versionId && <Simulator versionId={versionId} categories={type.data?.lineCategories ?? []} steps={steps} dirty={dirty} sim={sim} onResult={setSim} />}
+          {issues.length > 0 && !readOnly && (
+            <Banner tone="warning" title={t('workflows.fixIssues', { n: issues.length })}>
+              <ul className="mt-1 list-disc space-y-0.5 ps-5">
+                {issues.map((x, k) => (
+                  <li key={k}>
+                    {'index' in x ? `${x.index + 1}: ` : ''}
+                    {t(`workflows.issue.${x.code}`)}
+                  </li>
                 ))}
-              </ol>
-            </SortableContext>
-          </DndContext>
-
-          {versionId && <Simulator versionId={versionId} requestTypeId={wf.data.requestTypeId} steps={steps} dirty={dirty} />}
-        </>
-      )}
+              </ul>
+            </Banner>
+          )}
+        </aside>
+      </div>
 
       <ConfirmDialog open={confirmPublish} onClose={() => setConfirmPublish(false)} onConfirm={() => publish.mutate()} loading={publish.isPending} title={t('workflows.publish')} message={t('workflows.publishConfirm')} />
-      <ConfirmDialog open={confirmDelete} onClose={() => setConfirmDelete(false)} onConfirm={() => del.mutate()} loading={del.isPending} danger title={t('workflows.deleteDraft')} />
-    </div>
+      <ConfirmDialog open={confirmDelete} onClose={() => setConfirmDelete(false)} onConfirm={() => del.mutate()} loading={del.isPending} danger title={t('workflows.deleteDraft')} message={t('workflows.deleteConfirm')} />
+    </Page>
   );
 }
 
 /** Try the saved draft against sample categories and a total (POST /workflow-versions/:id/simulate). */
-function Simulator({ versionId, requestTypeId, steps, dirty }: { versionId: string; requestTypeId: string; steps: EditableStep[]; dirty: boolean }) {
+function Simulator({
+  versionId,
+  categories,
+  steps,
+  dirty,
+  sim,
+  onResult,
+}: {
+  versionId: string;
+  categories: { id: string; nameAr: string; nameEn: string; isActive: boolean }[];
+  steps: EditableStep[];
+  dirty: boolean;
+  sim: SimulationResult | null;
+  onResult: (r: SimulationResult | null) => void;
+}) {
   const { t, locale } = useTr();
   const [cats, setCats] = useState<string[]>([]);
   const [total, setTotal] = useState('1000');
-  const type = useQuery({ queryKey: ['request-type', requestTypeId], queryFn: () => api.get<RequestTypeDto>(`/request-types/${requestTypeId}`), staleTime: 60_000 });
-  const sim = useMutation({
+  const run = useMutation({
     mutationFn: () => api.post<unknown>(`/workflow-versions/${versionId}/simulate`, { categoryIds: cats, totalAmount: total || '0' }),
+    onSuccess: (r) => onResult(extractApplicable(r)),
   });
-  const result = sim.data as unknown;
-  const applicable = extractApplicable(result);
   return (
-    <Card title={t('workflows.simulate.title')} actions={<FlaskConical className="h-4 w-4 text-slate-400" aria-hidden />}>
-      <p className="mb-2 text-xs text-slate-500">{dirty ? t('workflows.simulate.saveFirst') : t('workflows.simulate.hint')}</p>
-      <div className="flex flex-wrap gap-x-5 gap-y-2">
-        {(type.data?.lineCategories ?? []).filter((c) => c.isActive).map((c) => (
-          <Checkbox key={c.id} checked={cats.includes(c.id)} onChange={(v) => setCats((l) => (v ? [...l, c.id] : l.filter((x) => x !== c.id)))} label={locale === 'ar' ? c.nameAr : c.nameEn || c.nameAr} />
-        ))}
-      </div>
-      <div className="mt-3 flex flex-wrap items-end gap-2">
-        <FormField label={t('workflows.simulate.total')} className="w-40">{(fid) => <Input id={fid} inputMode="decimal" dir="ltr" value={total} onChange={(e) => setTotal(e.target.value)} />}</FormField>
-        <Button variant="secondary" loading={sim.isPending} disabled={dirty} onClick={() => sim.mutate()}>
-          {t('workflows.simulate.run')}
-        </Button>
-      </div>
-      {sim.isError && <p className="mt-2 text-sm text-red-700">{errorMessage(sim.error)}</p>}
-      {sim.isSuccess && (
-        <div className="mt-3">
-          {applicable ? (
-            <ul className="flex flex-wrap gap-2">
-              {[...applicable.entries()].map(([key, a]) => {
-                const base = steps.find((s) => s.key === key.split(':')[0]);
-                const suffix = key.includes(':') ? ` (${key.split(':')[1]})` : '';
-                return (
-                  <li key={key}>
-                    <Badge tone={a ? 'green' : 'gray'}>
-                      {((locale === 'ar' ? base?.nameAr : base?.nameEn) || key.split(':')[0]) + suffix}: {t(a ? 'workflows.simulate.applies' : 'workflows.simulate.skipped')}
-                    </Badge>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <pre dir="ltr" className="max-h-60 overflow-auto rounded bg-slate-50 p-2 text-xs">{JSON.stringify(result, null, 2)}</pre>
-          )}
+    <Card title={t('workflows.simulate.title')} actions={<FlaskConical className="h-4 w-4 text-ink-3" aria-hidden />}>
+      <div data-testid="wf-simulator">
+        <p className="mb-2 text-xs text-ink-3">{dirty ? t('workflows.simulate.saveFirst') : t('workflows.simulate.hint')}</p>
+        <div className="flex flex-wrap gap-x-5 gap-y-2">
+          {categories
+            .filter((c) => c.isActive)
+            .map((c) => (
+              <Checkbox key={c.id} checked={cats.includes(c.id)} onChange={(v) => setCats((l) => (v ? [...l, c.id] : l.filter((x) => x !== c.id)))} label={locale === 'ar' ? c.nameAr : c.nameEn || c.nameAr} />
+            ))}
         </div>
-      )}
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <FormField label={t('workflows.simulate.total')} className="w-40">
+            {(fid) => <Input id={fid} numeric value={total} onChange={(e) => setTotal(e.target.value)} />}
+          </FormField>
+          <Button variant="secondary" data-testid="wf-simulate" loading={run.isPending} disabled={dirty} onClick={() => run.mutate()}>
+            {t('workflows.simulate.run')}
+          </Button>
+        </div>
+        {run.isError && <p className="mt-2 text-sm text-danger">{errorMessage(run.error)}</p>}
+        {run.isSuccess && (
+          <div className="mt-3 space-y-2">
+            {sim ? (
+              <>
+                <p className="text-sm font-medium text-ink">{t('workflows.sim.result', { n: countApplicable(steps, sim), total: steps.length })}</p>
+                <ul className="flex flex-wrap gap-2">
+                  {[...sim.entries()].map(([key, a]) => {
+                    const base = steps.find((s) => s.key === key.split(':')[0]);
+                    const suffix = key.includes(':') ? ` (${key.split(':')[1]})` : '';
+                    return (
+                      <li key={key}>
+                        <Badge tone={a ? 'green' : 'gray'}>
+                          {((locale === 'ar' ? base?.nameAr : base?.nameEn) || key.split(':')[0]) + suffix}: {t(a ? 'workflows.simulate.applies' : 'workflows.simulate.skipped')}
+                        </Badge>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            ) : (
+              <pre dir="ltr" className="max-h-60 overflow-auto rounded bg-surface-2 p-2 text-xs">
+                {JSON.stringify(run.data, null, 2)}
+              </pre>
+            )}
+          </div>
+        )}
+      </div>
     </Card>
   );
 }
-
-/** Best-effort reading of the simulate response: an array / `steps` of { key|stepKey, applicable|active|status }. */
-function extractApplicable(r: unknown): Map<string, boolean> | null {
-  const list = Array.isArray(r) ? r : Array.isArray((r as { steps?: unknown })?.steps) ? (r as { steps: unknown[] }).steps : null;
-  if (!list) return null;
-  const m = new Map<string, boolean>();
-  for (const it of list) {
-    const o = it as Record<string, unknown>;
-    const key = (o.key ?? o.stepKey) as string | undefined;
-    if (!key) continue;
-    const a = o.applicable ?? o.applies ?? o.active;
-    if (typeof a === 'boolean') m.set(key, a);
-    else if (typeof o.status === 'string') m.set(key, o.status !== 'NOT_APPLICABLE');
-  }
-  return m.size > 0 ? m : null;
-}
-

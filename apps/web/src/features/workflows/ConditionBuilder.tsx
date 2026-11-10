@@ -55,7 +55,7 @@ export function ConditionEditor({ value, onChange, readOnly }: { value: Conditio
             role="tab"
             aria-selected={mode === m}
             onClick={() => setMode(m)}
-            className={cn('rounded-md px-3 py-1 font-semibold', mode === m ? 'bg-brand-700 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200')}
+            className={cn('rounded-md px-3 py-1 font-semibold', mode === m ? 'bg-primary text-on-primary' : 'bg-surface-2 text-ink-2 hover:bg-surface-3')}
           >
             {t(m === 'builder' ? 'workflows.cond.builder' : 'workflows.cond.json')}
           </button>
@@ -66,7 +66,7 @@ export function ConditionEditor({ value, onChange, readOnly }: { value: Conditio
       ) : (
         <div>
           <Textarea dir="ltr" rows={8} className="font-mono text-xs" value={text} readOnly={readOnly} invalid={!!err} onChange={(e) => onText(e.target.value)} />
-          {err && <p className="mt-1 text-xs text-red-600">{err}</p>}
+          {err && <p className="mt-1 text-xs text-danger">{err}</p>}
         </div>
       )}
     </div>
@@ -87,7 +87,7 @@ function NodeEditor({ node, onChange, onRemove, readOnly, depth }: { node: CNode
   const remove = onRemove && !readOnly && (
     <Button size="sm" variant="ghost" onClick={onRemove} aria-label={t('common.remove')} icon={<Trash2 className="h-4 w-4" />} />
   );
-  const box = cn('rounded-lg border p-2', depth % 2 === 0 ? 'border-slate-200 bg-slate-50' : 'border-slate-200 bg-white');
+  const box = cn('rounded-lg border p-2', depth % 2 === 0 ? 'border-hairline bg-surface-2' : 'border-hairline bg-surface');
 
   switch (node.kind) {
     case 'ALWAYS':
@@ -95,7 +95,7 @@ function NodeEditor({ node, onChange, onRemove, readOnly, depth }: { node: CNode
       return (
         <div className={cn(box, 'flex flex-wrap items-center gap-2')}>
           {kindSelect}
-          <span className="flex-1 text-xs text-slate-500">{t(`workflows.cond.hint.${node.kind}`)}</span>
+          <span className="flex-1 text-xs text-ink-3">{t(`workflows.cond.hint.${node.kind}`)}</span>
           {remove}
         </div>
       );
@@ -159,10 +159,10 @@ function NodeEditor({ node, onChange, onRemove, readOnly, depth }: { node: CNode
         <div className={box}>
           <div className="mb-2 flex flex-wrap items-center gap-2">
             {kindSelect}
-            <span className="flex-1 text-xs text-slate-500">{t(`workflows.cond.hint.${node.kind}`)}</span>
+            <span className="flex-1 text-xs text-ink-3">{t(`workflows.cond.hint.${node.kind}`)}</span>
             {remove}
           </div>
-          <div className="space-y-2 border-s-2 border-brand-200 ps-3">
+          <div className="space-y-2 border-s-2 border-line ps-3">
             {node.children.map((c, i) => (
               <NodeEditor
                 key={i}
@@ -186,10 +186,10 @@ function NodeEditor({ node, onChange, onRemove, readOnly, depth }: { node: CNode
         <div className={box}>
           <div className="mb-2 flex flex-wrap items-center gap-2">
             {kindSelect}
-            <span className="flex-1 text-xs text-slate-500">{t('workflows.cond.hint.NOT')}</span>
+            <span className="flex-1 text-xs text-ink-3">{t('workflows.cond.hint.NOT')}</span>
             {remove}
           </div>
-          <div className="border-s-2 border-brand-200 ps-3">
+          <div className="border-s-2 border-line ps-3">
             <NodeEditor node={node.child} depth={depth + 1} readOnly={readOnly} onChange={(n) => onChange({ ...node, child: n })} />
           </div>
         </div>

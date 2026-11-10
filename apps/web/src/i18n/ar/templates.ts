@@ -78,5 +78,6 @@ const dict: Dict = {
   'field.show': 'إظهار',
   'field.label': 'العنوان',
   'noTypeName': 'نوع الطلب',
+  'menu.more': 'المزيد',
 };
 export default dict;
