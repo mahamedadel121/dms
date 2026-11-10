@@ -20,7 +20,7 @@ export function useFormState<T extends Record<string, unknown>>(initial: T) {
   const reset = useCallback((next?: T) => {
     setValues(next ?? initial);
     setErrors({});
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
   return { values, set, setValues, errors, setErrors, reset };
 }
 

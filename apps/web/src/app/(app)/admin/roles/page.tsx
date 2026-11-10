@@ -79,7 +79,10 @@ export default function RolesPage() {
   const toggleGroup = (roleId: string, codes: string[], on: boolean) =>
     setDraft((d) => {
       const cur = new Set(d[roleId] ?? []);
-      for (const c of codes) (on ? cur.add(c) : cur.delete(c));
+      for (const c of codes) {
+        if (on) cur.add(c);
+        else cur.delete(c);
+      }
       return { ...d, [roleId]: [...cur] };
     });
 

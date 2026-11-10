@@ -138,7 +138,6 @@ export function SignatureManager({ owner, ownerId, canEdit = true, onChanged }: 
         <p className="mb-2 text-sm font-semibold text-slate-700">{t('sig.current')}</p>
         {cur ? (
           <div className="flex flex-wrap items-center gap-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={cur.url} alt="signature" className="h-20 max-w-xs rounded-md border border-slate-200 bg-white object-contain p-1" />
             <span className="text-xs text-slate-500">{formatDateTime(cur.createdAt)}</span>
             {canEdit && (
@@ -157,7 +156,6 @@ export function SignatureManager({ owner, ownerId, canEdit = true, onChanged }: 
           <div className="flex flex-wrap gap-3">
             {history.map((h) => (
               <figure key={h.id} className="text-center">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={h.url} alt="old signature" className="h-14 rounded border border-slate-200 bg-white object-contain p-1 opacity-70" />
                 <figcaption className="mt-1 text-[11px] text-slate-400">{formatDateTime(h.createdAt)}</figcaption>
               </figure>
@@ -206,7 +204,6 @@ export function SignatureManager({ owner, ownerId, canEdit = true, onChanged }: 
             <div>
               <p className="mb-1 text-xs font-semibold text-slate-500">{t('sig.preview')}</p>
               <div className="flex h-24 items-center justify-center rounded-md border border-dashed border-slate-300 bg-white">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
                 {preview && <img src={preview} alt="preview" className="max-h-20 max-w-full object-contain" />}
               </div>
             </div>
