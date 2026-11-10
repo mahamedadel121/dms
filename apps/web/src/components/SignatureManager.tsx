@@ -5,9 +5,9 @@ import Cropper, { type Area } from 'react-easy-crop';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
-import { formatDateTime } from '@/lib/format';
+
 import { useT } from '@/lib/i18n';
-import { Button, Card, ConfirmDialog, FileDrop, LoadingBlock, Modal, Select, useToast } from '@/components/ui';
+import { Button, Card, ConfirmDialog, DateText, FileDrop, Icon, Modal, Select, SkeletonCard, useToast } from '@/components/ui';
 
 interface SignatureRow {
   id: string;
@@ -128,26 +128,26 @@ export function SignatureManager({ owner, ownerId, canEdit = true, onChanged }: 
     setPreview(null);
   }
 
-  if (info.isLoading) return <LoadingBlock />;
+  if (info.isLoading) return <SkeletonCard lines={3} />;
   const cur = info.data?.current ?? null;
   const history = (info.data?.history ?? []).filter((h) => h.id !== cur?.id);
 
   return (
     <div className="space-y-4">
       <div>
-        <p className="mb-2 text-sm font-semibold text-slate-700">{t('sig.current')}</p>
+        <p className="mb-2 text-sm font-medium text-ink-2">{t('sig.current')}</p>
         {cur ? (
           <div className="flex flex-wrap items-center gap-3">
-            <img src={cur.url} alt="signature" className="h-20 max-w-xs rounded-md border border-slate-200 bg-white object-contain p-1" />
-            <span className="text-xs text-slate-500">{formatDateTime(cur.createdAt)}</span>
+            <img src={cur.url} alt="signature" className="h-20 max-w-xs rounded border border-hairline bg-surface object-contain p-1" />
+            <span className="text-xs text-ink-3"><DateText value={cur.createdAt} mode="dayTime" /></span>
             {canEdit && (
-              <Button size="sm" variant="ghost" icon={<Trash2 className="h-4 w-4" />} onClick={() => setConfirmDelete(true)}>
+              <Button size="sm" variant="ghost" icon={<Icon as={Trash2} size={16} />} onClick={() => setConfirmDelete(true)}>
                 {t('sig.remove')}
               </Button>
             )}
           </div>
         ) : (
-          <p className="text-sm text-slate-500">{t('profile.noSignature')}</p>
+          <p className="text-sm text-ink-3">{t('profile.noSignature')}</p>
         )}
       </div>
       {canEdit && <FileDrop accept="image/png,image/jpeg" onFile={onFile} label={t('sig.choose')} hint={t('sig.hint')} />}
@@ -156,8 +156,8 @@ export function SignatureManager({ owner, ownerId, canEdit = true, onChanged }: 
           <div className="flex flex-wrap gap-3">
             {history.map((h) => (
               <figure key={h.id} className="text-center">
-                <img src={h.url} alt="old signature" className="h-14 rounded border border-slate-200 bg-white object-contain p-1 opacity-70" />
-                <figcaption className="mt-1 text-[11px] text-slate-400">{formatDateTime(h.createdAt)}</figcaption>
+                <img src={h.url} alt="old signature" className="h-14 rounded border border-hairline bg-surface object-contain p-1 opacity-70" />
+                <figcaption className="mt-1 text-[11px] text-ink-3"><DateText value={h.createdAt} mode="dayTime" /></figcaption>
               </figure>
             ))}
           </div>
@@ -171,22 +171,22 @@ export function SignatureManager({ owner, ownerId, canEdit = true, onChanged }: 
         title={t('sig.title')}
         footer={
           <>
-            <Button variant="secondary" onClick={closeCropper}>
-              {t('common.cancel')}
-            </Button>
             <Button loading={upload.isPending} disabled={!area} onClick={() => upload.mutate()}>
               {t('sig.upload')}
+            </Button>
+            <Button variant="secondary" onClick={closeCropper}>
+              {t('common.cancel')}
             </Button>
           </>
         }
       >
         {src && (
           <div className="space-y-3">
-            <div className="relative h-64 w-full overflow-hidden rounded-md bg-slate-200" dir="ltr">
+            <div className="relative h-64 w-full overflow-hidden rounded bg-surface-3" dir="ltr">
               <Cropper image={src} crop={crop} zoom={zoom} aspect={Number(aspect)} onCropChange={setCrop} onZoomChange={setZoom} onCropComplete={onComplete} showGrid={false} />
             </div>
             <div className="flex flex-wrap items-center gap-4">
-              <label className="flex flex-1 items-center gap-2 text-sm text-slate-600">
+              <label className="flex flex-1 items-center gap-2 text-sm text-ink-2">
                 {t('sig.zoom')}
                 <input type="range" min={1} max={4} step={0.05} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="flex-1" />
               </label>
@@ -202,8 +202,8 @@ export function SignatureManager({ owner, ownerId, canEdit = true, onChanged }: 
               />
             </div>
             <div>
-              <p className="mb-1 text-xs font-semibold text-slate-500">{t('sig.preview')}</p>
-              <div className="flex h-24 items-center justify-center rounded-md border border-dashed border-slate-300 bg-white">
+              <p className="mb-1 text-xs font-medium text-ink-3">{t('sig.preview')}</p>
+              <div className="flex h-24 items-center justify-center rounded border border-dashed border-line bg-surface">
                 {preview && <img src={preview} alt="preview" className="max-h-20 max-w-full object-contain" />}
               </div>
             </div>

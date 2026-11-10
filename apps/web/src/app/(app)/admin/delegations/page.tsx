@@ -2,14 +2,15 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Plus } from 'lucide-react';
+import { ArrowRight, Ban, Plus } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useT } from '@/lib/i18n';
-import { formatDateTime } from '@/lib/format';
+import { cairoDayToIso } from '@/lib/format';
+import { delegationStatus } from '@/features/admin/delegation';
 import {
-  Badge, Button, Card, Checkbox, ConfirmDialog, DataTable, ErrorBlock, FormField, Input, LookupSelect, Modal, PageHeader, Textarea,
-  fieldErrorsFromApi, requiredErrors, useToast, type BadgeTone,
+  Avatar, Button, Checkbox, ConfirmDialog, DataTable, DateField, DateText, ErrorBlock, FormField, Icon, IconButton, LookupSelect, Modal, Page, PageHeader,
+  StatusChip, Textarea, fieldErrorsFromApi, requiredErrors, useToast,
 } from '@/components/ui';
 
 interface Delegation {
@@ -26,10 +27,8 @@ interface Delegation {
   status: 'UPCOMING' | 'ACTIVE' | 'EXPIRED' | 'REVOKED';
 }
 
-const TONE: Record<Delegation['status'], BadgeTone> = { UPCOMING: 'blue', ACTIVE: 'green', EXPIRED: 'gray', REVOKED: 'red' };
-
-/** `datetime-local` value (wall clock in the browser) -> ISO */
-const toIso = (v: string) => new Date(v).toISOString();
+/** The API only reports a REVOKED status; the model gets a `revokedAt` marker so REVOKED wins. */
+const statusOf = (d: Delegation) => delegationStatus({ startsAt: d.startsAt, endsAt: d.endsAt, revokedAt: d.status === 'REVOKED' ? d.endsAt : null });
 
 export default function DelegationsPage() {
   const { t } = useT();
@@ -51,8 +50,8 @@ export default function DelegationsPage() {
       api.post('/delegations', {
         toUserId: form.toUserId,
         roleId: form.roleId || null,
-        startsAt: toIso(form.startsAt),
-        endsAt: toIso(form.endsAt),
+        startsAt: cairoDayToIso(form.startsAt),
+        endsAt: cairoDayToIso(form.endsAt, true),
         reason: form.reason.trim() || null,
         ...(all && form.fromUserId ? { fromUserId: form.fromUserId } : {}),
       }),
@@ -79,12 +78,19 @@ export default function DelegationsPage() {
   function submit() {
     const missing = requiredErrors(form, ['toUserId', 'startsAt', 'endsAt'], t('common.fieldRequired'));
     if (Object.keys(missing).length) return setErrors(missing);
-    if (new Date(form.endsAt) <= new Date(form.startsAt)) return setErrors({ endsAt: t('common.invalidNumber') });
+    if (form.endsAt < form.startsAt) return setErrors({ endsAt: t('common.invalidNumber') });
     create.mutate();
   }
 
+  const person = (n: string) => (
+    <span className="flex items-center gap-2">
+      <Avatar name={n} size={24} />
+      <span>{n}</span>
+    </span>
+  );
+
   return (
-    <>
+    <Page testId="page-admin-delegations">
       <PageHeader
         title={t('admin.deleg.title')}
         subtitle={t('admin.deleg.subtitle')}
@@ -92,7 +98,7 @@ export default function DelegationsPage() {
           <>
             {all && <Checkbox label={t('admin.deleg.mineOnly')} checked={mine} onChange={setMine} />}
             <Button
-              icon={<Plus className="h-4 w-4" />}
+              icon={<Icon as={Plus} size={16} />}
               onClick={() => {
                 setErrors({});
                 setForm({ toUserId: '', roleId: '', startsAt: '', endsAt: '', reason: '', fromUserId: '' });
@@ -104,31 +110,47 @@ export default function DelegationsPage() {
           </>
         }
       />
-      <Card padded={false}>
-        {list.error ? (
-          <div className="p-4"><ErrorBlock message={errorMessage(list.error)} /></div>
-        ) : (
-          <DataTable<Delegation>
-            rows={list.data}
-            rowKey={(r) => r.id}
-            loading={list.isFetching}
-            columns={[
-              { key: 'from', header: t('admin.deleg.from'), primary: true, cell: (r) => r.fromUserName },
-              { key: 'to', header: t('admin.deleg.to'), cell: (r) => r.toUserName },
-              { key: 'role', header: t('admin.deleg.role'), cell: (r) => r.roleName ?? t('admin.deleg.allRoles') },
-              { key: 'startsAt', header: t('admin.deleg.starts'), cell: (r) => formatDateTime(r.startsAt) },
-              { key: 'endsAt', header: t('admin.deleg.ends'), cell: (r) => formatDateTime(r.endsAt) },
-              { key: 'reason', header: t('admin.deleg.reason'), hideOnMobile: true, cell: (r) => r.reason ?? '' },
-              { key: 'status', header: t('common.status'), cell: (r) => <Badge tone={TONE[r.status]}>{t(`admin.deleg.st.${r.status}`)}</Badge> },
-            ]}
-            rowActions={(r) =>
-              (r.status === 'ACTIVE' || r.status === 'UPCOMING') && (r.fromUserId === me?.id || all) ? (
-                <Button size="sm" variant="ghost" icon={<Ban className="h-4 w-4" />} title={t('admin.deleg.revoke')} aria-label={t('admin.deleg.revoke')} onClick={() => setRevoke(r)} />
-              ) : null
-            }
-          />
-        )}
-      </Card>
+      {list.error ? (
+        <ErrorBlock message={errorMessage(list.error)} onRetry={() => void list.refetch()} />
+      ) : (
+        <DataTable<Delegation>
+          testId="delegations"
+          rows={list.data}
+          rowKey={(r) => r.id}
+          loading={list.isFetching}
+          columns={[
+            { key: 'from', header: t('admin.deleg.from'), primary: true, cell: (r) => person(r.fromUserName) },
+            { key: 'to', header: t('admin.deleg.to'), cell: (r) => person(r.toUserName) },
+            { key: 'role', header: t('admin.deleg.role'), cell: (r) => r.roleName ?? t('admin.deleg.allRoles') },
+            {
+              key: 'period',
+              header: t('admin.deleg.period'),
+              cell: (r) => (
+                <span className="inline-flex items-center gap-1.5">
+                  <DateText value={r.startsAt} mode="day" />
+                  <Icon as={ArrowRight} size={14} mirror className="text-ink-3" />
+                  <DateText value={r.endsAt} mode="day" />
+                </span>
+              ),
+            },
+            { key: 'reason', header: t('admin.deleg.reason'), hideOnMobile: true, cell: (r) => r.reason ?? '' },
+            {
+              key: 'status',
+              header: t('common.status'),
+              cell: (r) => {
+                const st = statusOf(r);
+                return <StatusChip kind="delegation" status={st} label={t(`admin.deleg.st.${st}`)} />;
+              },
+            },
+          ]}
+          rowActions={(r) => {
+            const st = statusOf(r);
+            return (st === 'ACTIVE' || st === 'UPCOMING') && (r.fromUserId === me?.id || all) ? (
+              <IconButton icon={<Icon as={Ban} size={18} />} label={t('admin.deleg.revoke')} onClick={() => setRevoke(r)} />
+            ) : null;
+          }}
+        />
+      )}
 
       <Modal
         open={open}
@@ -136,8 +158,8 @@ export default function DelegationsPage() {
         title={t('admin.deleg.new')}
         footer={
           <>
-            <Button variant="secondary" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
             <Button loading={create.isPending} onClick={submit}>{t('common.save')}</Button>
+            <Button variant="secondary" onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
           </>
         }
       >
@@ -155,16 +177,16 @@ export default function DelegationsPage() {
           </FormField>
           <div className="grid gap-4 sm:grid-cols-2">
             <FormField label={t('admin.deleg.starts')} required error={errors.startsAt}>
-              {(id) => <Input id={id} type="datetime-local" value={form.startsAt} invalid={!!errors.startsAt} onChange={(e) => setForm({ ...form, startsAt: e.target.value })} />}
+              {(id) => <DateField id={id} value={form.startsAt} invalid={!!errors.startsAt} onChange={(v) => setForm({ ...form, startsAt: v })} />}
             </FormField>
             <FormField label={t('admin.deleg.ends')} required error={errors.endsAt}>
-              {(id) => <Input id={id} type="datetime-local" value={form.endsAt} invalid={!!errors.endsAt} onChange={(e) => setForm({ ...form, endsAt: e.target.value })} />}
+              {(id) => <DateField id={id} value={form.endsAt} min={form.startsAt || undefined} invalid={!!errors.endsAt} onChange={(v) => setForm({ ...form, endsAt: v })} />}
             </FormField>
           </div>
           <FormField label={t('admin.deleg.reason')}>{(id) => <Textarea id={id} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />}</FormField>
         </div>
       </Modal>
       <ConfirmDialog open={!!revoke} onClose={() => setRevoke(null)} danger title={t('admin.deleg.revoke')} message={t('admin.deleg.revokeBody')} loading={doRevoke.isPending} onConfirm={() => revoke && doRevoke.mutate(revoke)} />
-    </>
+    </Page>
   );
 }

@@ -117,6 +117,48 @@ const dict: Dict = {
   'settings.k.reports.exportTtlHours': 'مدة بقاء ملفات التصدير (ساعة)',
   'settings.k.company.profile': 'بيانات الشركة',
   'settings.k.sap.config': 'إعدادات SAP',
+  'settings.k.notifications.email': 'إشعارات البريد الإلكتروني',
+  'settings.k.notifications.telegramUsers': 'إشعارات تليجرام للموظفين',
+
+  'users.telegramLink': 'ربط تليجرام',
+  'users.telegramUnlink': 'فك ربط تليجرام',
+  'users.unlinkBody': 'سيتوقف وصول إشعارات تليجرام لهذا المستخدم حتى يُعاد ربط الحساب.',
+  'users.unlinked': 'تم فك ربط تليجرام',
+  'users.user': 'المستخدم',
+  'users.more': 'المزيد',
+
+  'matrix.dirty': '{n} تغييرات غير محفوظة',
+  'matrix.search': 'بحث في الصلاحيات',
+  'matrix.empty': 'لا توجد صلاحيات مطابقة للبحث',
+  'matrix.collapse': 'طي المجموعة',
+  'matrix.expand': 'فتح المجموعة',
+
+  'audit.immutable': 'السجل غير قابل للتعديل',
+  'audit.raw': 'JSON الخام',
+  'audit.dateRange': 'الفترة',
+
+  'deleg.st.ENDED': 'منتهٍ',
+  'deleg.period': 'الفترة',
+
+  'settings.group.workflow': 'مسار الاعتماد',
+  'settings.group.bot': 'بوت تليجرام',
+  'settings.group.expense': 'المصروفات',
+  'settings.group.media': 'الوسائط',
+  'settings.group.files': 'الملفات',
+  'settings.group.reports': 'التقارير',
+  'settings.group.company': 'الشركة',
+  'settings.group.sap': 'SAP',
+  'settings.group.notifications': 'الإشعارات',
+  'settings.group.other': 'أخرى',
+  'settings.notifEnabled': 'مفعّل',
+  'settings.notifTypes': 'الإرسال لهذه الأحداث',
+  'notifType.REQ_AT_STEP': 'طلب بانتظار إجراء منك',
+  'notifType.SLA_REMINDER': 'تذكير بالتأخير',
+  'notifType.CORRECTION_RETURNED': 'عودة طلب بعد التصحيح',
+  'notifType.STEP_SENT_BACK': 'إرجاع طلب',
+  'notifType.SAP_FAILED': 'فشل الترحيل إلى SAP',
+  'notifType.VEHICLE_CHANGE_REQUESTED': 'طلب تغيير مركبة',
+  'notifType.EXPORT_READY': 'اكتمال التصدير',
 };
 
 export default dict;

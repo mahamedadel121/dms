@@ -117,6 +117,48 @@ const dict: Dict = {
   'settings.k.reports.exportTtlHours': 'Export retention (hours)',
   'settings.k.company.profile': 'Company profile',
   'settings.k.sap.config': 'SAP configuration',
+  'settings.k.notifications.email': 'Email notifications',
+  'settings.k.notifications.telegramUsers': 'Telegram notifications for staff',
+
+  'users.telegramLink': 'Link Telegram',
+  'users.telegramUnlink': 'Unlink Telegram',
+  'users.unlinkBody': 'The user will stop receiving Telegram notifications until the account is linked again.',
+  'users.unlinked': 'Telegram unlinked',
+  'users.user': 'User',
+  'users.more': 'More',
+
+  'matrix.dirty': '{n} unsaved changes',
+  'matrix.search': 'Search permissions',
+  'matrix.empty': 'No permissions match your search',
+  'matrix.collapse': 'Collapse group',
+  'matrix.expand': 'Expand group',
+
+  'audit.immutable': 'This log cannot be edited',
+  'audit.raw': 'Raw JSON',
+  'audit.dateRange': 'Period',
+
+  'deleg.st.ENDED': 'Ended',
+  'deleg.period': 'Period',
+
+  'settings.group.workflow': 'Workflow',
+  'settings.group.bot': 'Telegram bot',
+  'settings.group.expense': 'Expenses',
+  'settings.group.media': 'Media',
+  'settings.group.files': 'Files',
+  'settings.group.reports': 'Reports',
+  'settings.group.company': 'Company',
+  'settings.group.sap': 'SAP',
+  'settings.group.notifications': 'Notifications',
+  'settings.group.other': 'Other',
+  'settings.notifEnabled': 'Enabled',
+  'settings.notifTypes': 'Send for these events',
+  'notifType.REQ_AT_STEP': 'Request waiting for your action',
+  'notifType.SLA_REMINDER': 'Overdue reminder',
+  'notifType.CORRECTION_RETURNED': 'Correction returned',
+  'notifType.STEP_SENT_BACK': 'Request sent back',
+  'notifType.SAP_FAILED': 'SAP posting failed',
+  'notifType.VEHICLE_CHANGE_REQUESTED': 'Vehicle change requested',
+  'notifType.EXPORT_READY': 'Export ready',
 };
 
 export default dict;

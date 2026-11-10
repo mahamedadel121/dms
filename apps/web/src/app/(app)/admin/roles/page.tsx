@@ -1,16 +1,17 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Lock, Plus } from 'lucide-react';
+import { ChevronDown, ChevronRight, Lock, Plus } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { cn } from '@/lib/cn';
 import { useT } from '@/lib/i18n';
 import {
-  Badge, Button, Card, ErrorBlock, FormField, Input, LoadingBlock, LookupSelect, Modal, PageHeader, Tabs, Textarea,
+  Badge, Button, Card, Code, EmptyState, ErrorBlock, FormField, Icon, Input, LookupSelect, Modal, Page, PageHeader, SearchInput, SkeletonRows, Tabs, Textarea,
   fieldErrorsFromApi, requiredErrors, useToast,
 } from '@/components/ui';
+import { diffMatrix, filterPermissions, groupState, toggleGroup as toggleGroupSet } from '@/features/admin/matrixModel';
 
 interface RoleRow {
   id: string;
@@ -38,6 +39,8 @@ interface Matrix {
 
 type Draft = Record<string, string[]>;
 
+const toSets = (d: Draft): Record<string, Set<string>> => Object.fromEntries(Object.entries(d).map(([k, v]) => [k, new Set(v)]));
+
 const EMPTY = { code: '', nameAr: '', nameEn: '', description: '', scopeDepartmentId: '' };
 
 export default function RolesPage() {
@@ -54,22 +57,29 @@ export default function RolesPage() {
   const [edit, setEdit] = useState<{ mode: 'create' | 'edit'; id?: string } | null>(null);
   const [form, setForm] = useState(EMPTY);
   const [errors, setErrors] = useState<Record<string, string | undefined>>({});
+  const [search, setSearch] = useState('');
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [hover, setHover] = useState<{ row: string | null; col: string | null }>({ row: null, col: null });
 
   useEffect(() => {
     if (matrix.data) setDraft(Object.fromEntries(Object.entries(matrix.data.grants).map(([k, v]) => [k, [...v]])));
   }, [matrix.data]);
 
   const roles = matrix.data?.roles ?? rolesOnly.data ?? [];
-  const changed = useMemo(() => {
-    if (!matrix.data) return [] as string[];
-    return Object.keys(draft).filter((rid) => [...(draft[rid] ?? [])].sort().join('|') !== [...(matrix.data!.grants[rid] ?? [])].sort().join('|'));
-  }, [draft, matrix.data]);
+  const changes = useMemo(() => (matrix.data ? diffMatrix(matrix.data.grants, draft) : []), [draft, matrix.data]);
+  const changed = useMemo(() => changes.map((c) => c.roleId), [changes]);
+  const changedCells = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of changes) for (const code of [...c.added, ...c.removed]) s.add(`${c.roleId}|${code}`);
+    return s;
+  }, [changes]);
+  const sets = useMemo(() => toSets(draft), [draft]);
 
   const groups = useMemo(() => {
     const map = new Map<string, PermissionRow[]>();
-    for (const p of matrix.data?.permissions ?? []) (map.get(p.groupKey) ?? map.set(p.groupKey, []).get(p.groupKey)!).push(p);
+    for (const p of filterPermissions(matrix.data?.permissions ?? [], search, locale)) (map.get(p.groupKey) ?? map.set(p.groupKey, []).get(p.groupKey)!).push(p);
     return [...map.entries()];
-  }, [matrix.data]);
+  }, [matrix.data, search, locale]);
 
   const toggle = (roleId: string, code: string) =>
     setDraft((d) => {
@@ -77,13 +87,14 @@ export default function RolesPage() {
       return { ...d, [roleId]: cur.includes(code) ? cur.filter((c) => c !== code) : [...cur, code] };
     });
   const toggleGroup = (roleId: string, codes: string[], on: boolean) =>
-    setDraft((d) => {
-      const cur = new Set(d[roleId] ?? []);
-      for (const c of codes) {
-        if (on) cur.add(c);
-        else cur.delete(c);
-      }
-      return { ...d, [roleId]: [...cur] };
+    setDraft((d) => ({ ...d, [roleId]: [...toggleGroupSet(new Set(d[roleId] ?? []), codes, on)] }));
+  const discard = () => matrix.data && setDraft(Object.fromEntries(Object.entries(matrix.data.grants).map(([k, v]) => [k, [...v]])));
+  const toggleCollapse = (g: string) =>
+    setCollapsed((c) => {
+      const n = new Set(c);
+      if (n.has(g)) n.delete(g);
+      else n.add(g);
+      return n;
     });
 
   const saveAll = useMutation({
@@ -135,39 +146,36 @@ export default function RolesPage() {
   const err = matrix.error ?? rolesOnly.error;
 
   return (
-    <>
+    <Page testId="page-admin-roles" width={tab === 'matrix' && canManage ? 'full' : 'default'}>
       <PageHeader
         title={t('admin.roles.title')}
         subtitle={t('admin.roles.subtitle')}
-        actions={canManage && <Button icon={<Plus className="h-4 w-4" />} onClick={() => openRole('create')}>{t('admin.roles.new')}</Button>}
+        actions={canManage && <Button icon={<Icon as={Plus} size={16} />} onClick={() => openRole('create')}>{t('admin.roles.new')}</Button>}
       />
       {canManage && (
-        <Tabs className="mb-4" value={tab} onChange={setTab} items={[{ key: 'matrix', label: t('admin.roles.tabMatrix') }, { key: 'list', label: t('admin.roles.tabList') }]} />
+        <Tabs value={tab} onChange={setTab} items={[{ key: 'matrix', label: t('admin.roles.tabMatrix') }, { key: 'list', label: t('admin.roles.tabList') }]} />
       )}
-      {loading && <LoadingBlock />}
+      {loading && <SkeletonRows rows={8} cols={5} />}
       {err && <ErrorBlock message={errorMessage(err)} />}
 
       {canManage && tab === 'matrix' && matrix.data && (
-        <Card padded={false}>
-          {changed.length > 0 && (
-            <div className="sticky top-14 z-20 flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2">
-              <span className="text-sm font-semibold text-amber-900">{t('admin.roles.unsaved', { n: changed.length })}</span>
-              <span className="flex gap-2">
-                <Button size="sm" variant="secondary" onClick={() => setDraft(Object.fromEntries(Object.entries(matrix.data!.grants).map(([k, v]) => [k, [...v]])))}>{t('admin.roles.discard')}</Button>
-                <Button size="sm" loading={saveAll.isPending} onClick={() => saveAll.mutate()}>{t('admin.roles.saveAll')}</Button>
-              </span>
-            </div>
-          )}
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
+        <div className="space-y-3">
+          <div className="max-w-sm">
+            <SearchInput value={search} onChange={setSearch} placeholder={t('admin.matrix.search')} />
+          </div>
+          <div data-testid="matrix" className="max-h-[calc(100dvh-220px)] overflow-auto rounded-lg border border-hairline bg-surface">
+            <table className="min-w-full border-separate border-spacing-0 text-sm">
               <thead>
-                <tr className="bg-slate-50">
-                  <th className="sticky start-0 z-10 min-w-56 bg-slate-50 px-3 py-3 text-start text-xs font-bold text-slate-500">{t('admin.roles.permission')}</th>
+                <tr>
+                  <th className="sticky start-0 top-0 z-20 w-72 min-w-72 border-b border-hairline bg-surface-2 px-3 py-3 text-start text-13 font-medium text-ink-2">{t('admin.roles.permission')}</th>
                   {matrix.data.roles.map((r) => (
-                    <th key={r.id} className="min-w-28 px-2 py-3 text-center align-bottom text-xs font-bold text-slate-700">
-                      <button type="button" className="hover:underline" onClick={() => openRole('edit', r)} disabled={!canManage}>{name(r)}</button>
-                      <div className="mt-0.5 font-normal text-slate-400" dir="ltr">{r.code}</div>
-                      {r.isSuperUser && <Badge tone="purple" className="mt-1">{t('admin.roles.superUser')}</Badge>}
+                    <th
+                      key={r.id}
+                      className={cn('sticky top-0 z-10 min-w-28 border-b border-hairline bg-surface-2 px-2 py-3 text-center align-bottom', hover.col === r.id && 'bg-surface-3')}
+                    >
+                      <button type="button" className="text-13 font-medium text-ink hover:underline" onClick={() => openRole('edit', r)}>{name(r)}</button>
+                      <div><Code className="text-[11px] text-ink-3">{r.code}</Code></div>
+                      {r.isSuperUser && <Badge tone="purple" size="sm" className="mt-1">{t('admin.roles.superUser')}</Badge>}
                     </th>
                   ))}
                 </tr>
@@ -179,27 +187,41 @@ export default function RolesPage() {
                     group={group}
                     perms={perms}
                     roles={matrix.data!.roles}
-                    draft={draft}
-                    grants={matrix.data!.grants}
+                    sets={sets}
+                    changedCells={changedCells}
                     locale={locale}
+                    collapsed={collapsed.has(group)}
+                    hover={hover}
+                    setHover={setHover}
+                    onCollapse={() => toggleCollapse(group)}
                     onToggle={toggle}
                     onToggleGroup={toggleGroup}
                   />
                 ))}
               </tbody>
             </table>
+            {groups.length === 0 && <EmptyState compact title={t('admin.matrix.empty')} />}
           </div>
-          <p className="border-t border-slate-100 px-4 py-2 text-xs text-slate-500">{t('admin.roles.superNote')}</p>
-        </Card>
+          <p className="text-xs text-ink-3">{t('admin.roles.superNote')}</p>
+          {changed.length > 0 && (
+            <div className="sticky bottom-4 z-sticky mx-auto flex max-w-xl flex-wrap items-center justify-between gap-3 rounded-lg border border-hairline bg-surface px-4 py-3 shadow-pop">
+              <span data-testid="matrix-dirty-count" className="text-sm font-medium text-ink">{t('admin.matrix.dirty', { n: changedCells.size })}</span>
+              <span className="flex gap-2">
+                <Button size="sm" loading={saveAll.isPending} onClick={() => saveAll.mutate()} data-testid="matrix-save">{t('admin.roles.saveAll')}</Button>
+                <Button size="sm" variant="ghost" onClick={discard} data-testid="matrix-discard">{t('admin.roles.discard')}</Button>
+              </span>
+            </div>
+          )}
+        </div>
       )}
 
       {(tab === 'list' || !canManage) && !loading && (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {roles.map((r) => (
             <Card key={r.id} title={name(r)} actions={r.isSystem ? <Badge>{t('admin.roles.system')}</Badge> : undefined}>
-              <p className="text-xs text-slate-400" dir="ltr">{r.code}</p>
-              {r.description && <p className="mt-1 text-sm text-slate-600">{r.description}</p>}
-              <div className="mt-3 flex items-center justify-between text-sm text-slate-600">
+              <Code className="text-[11px] text-ink-3">{r.code}</Code>
+              {r.description && <p className="mt-1 text-sm text-ink-2">{r.description}</p>}
+              <div className="mt-3 flex items-center justify-between text-sm text-ink-2">
                 <span>{t('admin.roles.users')}: <b>{r.userCount}</b></span>
                 {canManage && <Button size="sm" variant="secondary" onClick={() => openRole('edit', r)}>{t('common.edit')}</Button>}
               </div>
@@ -214,8 +236,8 @@ export default function RolesPage() {
         title={edit?.mode === 'create' ? t('admin.roles.new') : t('common.edit')}
         footer={
           <>
-            <Button variant="secondary" onClick={() => setEdit(null)}>{t('common.cancel')}</Button>
             <Button loading={saveRole.isPending} onClick={submitRole}>{t('common.save')}</Button>
+            <Button variant="secondary" onClick={() => setEdit(null)}>{t('common.cancel')}</Button>
           </>
         }
       >
@@ -231,69 +253,96 @@ export default function RolesPage() {
           </FormField>
         </div>
       </Modal>
-    </>
+    </Page>
+  );
+}
+
+function TriCheckbox({ state, onChange, label }: { state: 'all' | 'some' | 'none'; onChange: (on: boolean) => void; label: string }) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = state === 'some';
+  }, [state]);
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      className="h-[18px] w-[18px] rounded-sm accent-primary"
+      checked={state === 'all'}
+      onChange={() => onChange(state !== 'all')}
+      aria-label={label}
+    />
   );
 }
 
 function GroupRows({
-  group, perms, roles, draft, grants, locale, onToggle, onToggleGroup,
+  group, perms, roles, sets, changedCells, locale, collapsed, hover, setHover, onCollapse, onToggle, onToggleGroup,
 }: {
   group: string;
   perms: PermissionRow[];
   roles: RoleRow[];
-  draft: Draft;
-  grants: Record<string, string[]>;
+  sets: Record<string, Set<string>>;
+  changedCells: Set<string>;
   locale: 'ar' | 'en';
+  collapsed: boolean;
+  hover: { row: string | null; col: string | null };
+  setHover: (h: { row: string | null; col: string | null }) => void;
+  onCollapse: () => void;
   onToggle: (roleId: string, code: string) => void;
   onToggleGroup: (roleId: string, codes: string[], on: boolean) => void;
 }) {
   const { t } = useT();
   const codes = perms.map((p) => p.code);
+  const title = t(`admin.roles.group.${group}`) === `admin.roles.group.${group}` ? group : t(`admin.roles.group.${group}`);
   return (
     <>
-      <tr className="bg-slate-100">
-        <td className="sticky start-0 bg-slate-100 px-3 py-1.5 text-xs font-bold uppercase text-slate-600">{t(`admin.roles.group.${group}`) === `admin.roles.group.${group}` ? group : t(`admin.roles.group.${group}`)}</td>
-        {roles.map((r) => {
-          const cur = draft[r.id] ?? [];
-          const all = codes.every((c) => cur.includes(c));
-          return (
-            <td key={r.id} className="px-2 py-1.5 text-center">
-              {!r.isSuperUser && (
-                <button type="button" className="text-[11px] font-semibold text-brand-700 hover:underline" onClick={() => onToggleGroup(r.id, codes, !all)}>
-                  {all ? '-' : '+'}
-                </button>
-              )}
-            </td>
-          );
-        })}
-      </tr>
-      {perms.map((p) => (
-        <tr key={p.code} className="border-t border-slate-100 hover:bg-slate-50">
-          <td className="sticky start-0 bg-white px-3 py-2">
-            <div className="font-medium text-slate-800">{locale === 'ar' ? p.nameAr : p.nameEn}</div>
-            <div className="text-[11px] text-slate-400" dir="ltr">{p.code}</div>
+      <tr className="h-9 bg-surface-2">
+        <td className="sticky start-0 z-10 bg-surface-2 px-3">
+          <button type="button" className="flex items-center gap-2 text-13 font-medium text-ink" onClick={onCollapse} aria-expanded={!collapsed} aria-label={collapsed ? t('admin.matrix.expand') : t('admin.matrix.collapse')}>
+            <Icon as={collapsed ? ChevronRight : ChevronDown} size={16} mirror={collapsed} className="text-ink-3" />
+            {title}
+          </button>
+        </td>
+        {roles.map((r) => (
+          <td key={r.id} className="bg-surface-2 px-2 text-center">
+            {!r.isSuperUser && <TriCheckbox state={groupState(codes, sets[r.id] ?? new Set())} onChange={(on) => onToggleGroup(r.id, codes, on)} label={`${r.code} ${title}`} />}
           </td>
-          {roles.map((r) => {
-            const on = r.isSuperUser || (draft[r.id] ?? []).includes(p.code);
-            const dirty = !r.isSuperUser && on !== (grants[r.id] ?? []).includes(p.code);
-            return (
-              <td key={r.id} className={cn('px-2 py-2 text-center', dirty && 'bg-amber-50')}>
-                {r.isSuperUser ? (
-                  <Lock className="mx-auto h-3.5 w-3.5 text-slate-300" aria-label={t('admin.roles.superUser')} />
-                ) : (
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-500"
-                    checked={on}
-                    onChange={() => onToggle(r.id, p.code)}
-                    aria-label={`${r.code} ${p.code}`}
-                  />
-                )}
-              </td>
-            );
-          })}
-        </tr>
-      ))}
+        ))}
+      </tr>
+      {!collapsed &&
+        perms.map((p) => (
+          <tr key={p.code} className="border-t border-hairline" onMouseEnter={() => setHover({ row: p.code, col: hover.col })} onMouseLeave={() => setHover({ row: null, col: null })}>
+            <td className={cn('sticky start-0 z-10 border-t border-hairline bg-surface px-3 py-2', hover.row === p.code && 'bg-surface-2')}>
+              <div className="text-sm text-ink">{locale === 'ar' ? p.nameAr : p.nameEn}</div>
+              <Code className="text-[11px] text-ink-3">{p.code}</Code>
+            </td>
+            {roles.map((r) => {
+              const on = r.isSuperUser || (sets[r.id] ?? new Set<string>()).has(p.code);
+              const dirty = !r.isSuperUser && changedCells.has(`${r.id}|${p.code}`);
+              return (
+                <td
+                  key={r.id}
+                  onMouseEnter={() => setHover({ row: p.code, col: r.id })}
+                  className={cn('border-t border-hairline px-2 py-2 text-center', hover.row === p.code && 'bg-surface-2/60', dirty && 'bg-brass-tint')}
+                >
+                  {r.isSuperUser ? (
+                    <Icon as={Lock} size={14} className="mx-auto text-ink-disabled" label={t('admin.roles.superUser')} />
+                  ) : (
+                    <input
+                      type="checkbox"
+                      data-testid="matrix-cell"
+                      data-role={r.id}
+                      data-perm={p.code}
+                      className="h-[18px] w-[18px] rounded-sm accent-primary"
+                      checked={on}
+                      onChange={() => onToggle(r.id, p.code)}
+                      aria-label={`${r.code} ${p.code}`}
+                    />
+                  )}
+                </td>
+              );
+            })}
+          </tr>
+        ))}
     </>
   );
 }

@@ -2,17 +2,17 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, LogOut, PenLine, Pencil, Plus, Search, ShieldCheck } from 'lucide-react';
+import { KeyRound, LogOut, MoreHorizontal, PenLine, Pencil, Plus, Send, ShieldCheck, Unlink } from 'lucide-react';
 import { api, errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useT } from '@/lib/i18n';
-import { formatDateTime } from '@/lib/format';
 import type { Paged } from '@/lib/types';
 import {
-  ActiveBadge, Badge, Button, Card, Checkbox, ConfirmDialog, DataTable, ErrorBlock, FormField, Input, LookupMultiSelect, LookupSelect, Modal,
-  PageHeader, Select, fieldErrorsFromApi, requiredErrors, useToast,
+  ActiveBadge, Avatar, Badge, Button, Checkbox, Code, ConfirmDialog, DataTable, DateText, ErrorBlock, FormField, Icon, IconButton, Input, LookupMultiSelect,
+  LookupSelect, Menu, Modal, Page, PageHeader, SearchInput, Select, fieldErrorsFromApi, requiredErrors, useToast, type MenuItem,
 } from '@/components/ui';
 import { SignatureManager } from '@/components/SignatureManager';
+import { TelegramLinkDialog, type TelegramLinkInfo } from '@/components/TelegramLinkDialog';
 
 interface UserRow {
   id: string;
@@ -59,7 +59,6 @@ export default function UsersPage() {
   const canManage = can('users.manage');
 
   const [page, setPage] = useState(1);
-  const [q, setQ] = useState('');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState('');
   const [edit, setEdit] = useState<{ mode: 'create' | 'edit'; user?: UserRow } | null>(null);
@@ -69,6 +68,8 @@ export default function UsersPage() {
   const [tempPassword, setTempPassword] = useState<string | null>(null);
   const [revoke, setRevoke] = useState<UserRow | null>(null);
   const [sig, setSig] = useState<UserRow | null>(null);
+  const [unlink, setUnlink] = useState<UserRow | null>(null);
+  const [tg, setTg] = useState<{ info: TelegramLinkInfo; name: string } | null>(null);
 
   const list = useQuery({
     queryKey: ['users', page, search, sort],
@@ -149,6 +150,34 @@ export default function UsersPage() {
     onError: (e) => toast.error(e),
   });
 
+  const doLink = useMutation({
+    mutationFn: (u: UserRow) => api.post<TelegramLinkInfo>(`/users/${u.id}/telegram-link`).then((info) => ({ info, name: u.fullName })),
+    onSuccess: (r) => setTg(r),
+    onError: (e) => toast.error(e),
+  });
+  const doUnlink = useMutation({
+    mutationFn: (u: UserRow) => api.post(`/users/${u.id}/telegram-unlink`),
+    onSuccess: () => {
+      toast.success(t('admin.users.unlinked'));
+      setUnlink(null);
+      void reload();
+    },
+    onError: (e) => toast.error(e),
+  });
+
+  function rowMenu(row: UserRow): MenuItem[] {
+    return [
+      { key: 'edit', label: t('common.edit'), icon: <Icon as={Pencil} size={16} />, hidden: !canManage, onSelect: () => open('edit', row) },
+      { key: 'roles', label: t('admin.users.editRoles'), icon: <Icon as={ShieldCheck} size={16} />, hidden: !canManage, onSelect: () => open('edit', row) },
+      { key: 'sig', label: t('admin.users.signature'), icon: <Icon as={PenLine} size={16} />, hidden: !can('signatures.manage'), onSelect: () => setSig(row) },
+      { key: 'sep1', separator: true },
+      { key: 'reset', label: t('admin.users.resetPassword'), icon: <Icon as={KeyRound} size={16} />, hidden: !canManage, onSelect: () => setReset(row) },
+      { key: 'revoke', label: t('admin.users.revokeSessions'), icon: <Icon as={LogOut} size={16} />, hidden: !canManage, onSelect: () => setRevoke(row) },
+      { key: 'tg-link', label: t('admin.users.telegramLink'), icon: <Icon as={Send} size={16} />, hidden: !canManage || row.telegramLinked, testId: 'tg-link', onSelect: () => doLink.mutate(row) },
+      { key: 'tg-unlink', label: t('admin.users.telegramUnlink'), icon: <Icon as={Unlink} size={16} />, hidden: !canManage || !row.telegramLinked, testId: 'tg-unlink', onSelect: () => setUnlink(row) },
+    ];
+  }
+
   function submit() {
     const req: (keyof Form)[] = edit!.mode === 'create' ? ['username', 'password', 'fullName'] : ['fullName'];
     const missing = requiredErrors(form as unknown as Record<string, unknown>, req as string[], t('common.fieldRequired'));
@@ -157,83 +186,105 @@ export default function UsersPage() {
   }
 
   return (
-    <>
+    <Page testId="page-admin-users" width="wide">
       <PageHeader
         title={t('admin.users.title')}
         subtitle={t('admin.users.subtitle')}
-        actions={canManage && <Button icon={<Plus className="h-4 w-4" />} onClick={() => open('create')}>{t('common.create')}</Button>}
+        actions={canManage && <Button icon={<Icon as={Plus} size={16} />} onClick={() => open('create')}>{t('common.create')}</Button>}
       />
-      <Card padded={false}>
-        <form
-          className="flex gap-2 border-b border-slate-100 p-3"
-          onSubmit={(e) => {
-            e.preventDefault();
+      <div className="max-w-sm">
+        <SearchInput
+          value={search}
+          onChange={(v) => {
             setPage(1);
-            setSearch(q.trim());
+            setSearch(v.trim());
           }}
-        >
-          <Input className="flex-1" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('common.searchPlaceholder')} />
-          <Button type="submit" variant="secondary" icon={<Search className="h-4 w-4" />}>{t('common.search')}</Button>
-        </form>
-        {list.error ? (
-          <div className="p-4"><ErrorBlock message={errorMessage(list.error)} /></div>
-        ) : (
-          <DataTable<UserRow>
-            rows={list.data?.items}
-            rowKey={(r) => r.id}
-            loading={list.isFetching}
-            page={page}
-            pageSize={25}
-            total={list.data?.total ?? 0}
-            onPageChange={setPage}
-            sort={sort}
-            onSortChange={setSort}
-            columns={[
-              { key: 'username', header: t('admin.users.username'), sortable: true, cell: (r) => <bdi className="font-semibold">{r.username}</bdi> },
-              { key: 'fullName', header: t('common.name'), sortable: true, primary: true, cell: (r) => r.fullName },
-              {
-                key: 'roles',
-                header: t('admin.users.roles'),
-                cell: (r) => (r.roles.length ? <span className="flex flex-wrap gap-1">{r.roles.map((x) => <Badge key={x.id} tone="blue">{name(x)}</Badge>)}</span> : '-'),
-              },
-              { key: 'lastLoginAt', header: t('admin.users.lastLogin'), sortable: true, hideOnMobile: true, cell: (r) => formatDateTime(r.lastLoginAt) || '-' },
-              {
-                key: 'status',
-                header: t('common.status'),
-                cell: (r) => (
-                  <span className="flex flex-wrap gap-1">
-                    <ActiveBadge active={r.isActive} />
-                    {r.lockedUntil && new Date(r.lockedUntil) > new Date() && <Badge tone="red">{t('admin.users.locked')}</Badge>}
-                    <Badge tone={r.hasSignature ? 'green' : 'amber'}>{r.hasSignature ? t('admin.users.hasSignature') : t('admin.users.noSignature')}</Badge>
+          placeholder={t('common.searchPlaceholder')}
+        />
+      </div>
+      {list.error ? (
+        <ErrorBlock message={errorMessage(list.error)} onRetry={() => void list.refetch()} />
+      ) : (
+        <DataTable<UserRow>
+          testId="users"
+          rows={list.data?.items}
+          rowKey={(r) => r.id}
+          loading={list.isFetching}
+          page={page}
+          pageSize={25}
+          total={list.data?.total ?? 0}
+          onPageChange={setPage}
+          sort={sort}
+          onSortChange={setSort}
+          columns={[
+            {
+              key: 'fullName',
+              header: t('admin.users.user'),
+              sortable: true,
+              primary: true,
+              cell: (r) => (
+                <span className="flex items-center gap-3">
+                  <Avatar name={r.fullName} size={32} />
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{r.fullName}</span>
+                    <Code className="text-[11px] text-ink-3">{r.username}</Code>
                   </span>
-                ),
-              },
-            ]}
-            rowActions={(row) => (
-              <>
-                {can('signatures.manage') && <Button size="sm" variant="ghost" icon={<PenLine className="h-4 w-4" />} title={t('admin.users.signature')} aria-label={t('admin.users.signature')} onClick={() => setSig(row)} />}
-                {canManage && (
-                  <>
-                    <Button size="sm" variant="ghost" icon={<Pencil className="h-4 w-4" />} title={t('common.edit')} aria-label={t('common.edit')} onClick={() => open('edit', row)} />
-                    <Button size="sm" variant="ghost" icon={<KeyRound className="h-4 w-4" />} title={t('admin.users.resetPassword')} aria-label={t('admin.users.resetPassword')} onClick={() => setReset(row)} />
-                    <Button size="sm" variant="ghost" icon={<LogOut className="h-4 w-4" />} title={t('admin.users.revokeSessions')} aria-label={t('admin.users.revokeSessions')} onClick={() => setRevoke(row)} />
-                  </>
-                )}
-              </>
-            )}
-          />
-        )}
-      </Card>
+                </span>
+              ),
+            },
+            {
+              key: 'roles',
+              header: t('admin.users.roles'),
+              cell: (r) =>
+                r.roles.length ? (
+                  <span className="flex flex-wrap gap-1">
+                    {r.roles.slice(0, 3).map((x) => <Badge key={x.id} tone="navy">{name(x)}</Badge>)}
+                    {r.roles.length > 3 && <Badge tone="gray">{`+${r.roles.length - 3}`}</Badge>}
+                  </span>
+                ) : '-',
+            },
+            { key: 'department', header: t('admin.users.department'), hideOnMobile: true, cell: (r) => r.departmentName ?? '-' },
+            { key: 'email', header: t('admin.users.email'), hideOnMobile: true, cell: (r) => (r.email ? <span dir="ltr">{r.email}</span> : '-') },
+            {
+              key: 'telegram',
+              header: t('admin.users.telegram'),
+              cell: (r) => (
+                <span data-testid="tg-chip">
+                  <Badge tone={r.telegramLinked ? 'green' : 'gray'} icon={<Icon as={Send} size={14} />}>
+                    {r.telegramLinked ? t('admin.users.telegramLinked') : t('admin.users.telegramNone')}
+                  </Badge>
+                </span>
+              ),
+            },
+            {
+              key: 'status',
+              header: t('common.status'),
+              cell: (r) => (
+                <span className="flex flex-wrap gap-1">
+                  <ActiveBadge active={r.isActive} />
+                  {r.lockedUntil && new Date(r.lockedUntil) > new Date() && <Badge tone="red">{t('admin.users.locked')}</Badge>}
+                  <Badge tone={r.hasSignature ? 'green' : 'amber'}>{r.hasSignature ? t('admin.users.hasSignature') : t('admin.users.noSignature')}</Badge>
+                </span>
+              ),
+            },
+            { key: 'lastLoginAt', header: t('admin.users.lastLogin'), sortable: true, hideOnMobile: true, cell: (r) => (r.lastLoginAt ? <DateText value={r.lastLoginAt} mode="relative" /> : '-') },
+          ]}
+          rowActions={(row) => (
+            <Menu align="end" items={rowMenu(row)} trigger={<IconButton icon={<Icon as={MoreHorizontal} size={18} />} label={t('admin.users.more')} />} />
+          )}
+        />
+      )}
 
       <Modal
         open={!!edit}
         onClose={() => setEdit(null)}
         size="lg"
+        testId="user-form"
         title={edit?.mode === 'create' ? t('common.create') : `${t('common.edit')} - ${edit?.user?.username ?? ''}`}
         footer={
           <>
-            <Button variant="secondary" onClick={() => setEdit(null)}>{t('common.cancel')}</Button>
             <Button loading={save.isPending} onClick={submit}>{t('common.save')}</Button>
+            <Button variant="secondary" onClick={() => setEdit(null)}>{t('common.cancel')}</Button>
           </>
         }
       >
@@ -261,11 +312,11 @@ export default function UsersPage() {
             {edit?.mode === 'edit' && <Checkbox label={t('common.active')} checked={form.isActive} disabled={edit.user?.id === me?.id} onChange={(c) => set('isActive', c)} />}
           </div>
           <div className="sm:col-span-2">
-            <p className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-slate-700"><ShieldCheck className="h-4 w-4" />{t('admin.users.roles')}</p>
+            <p className="mb-1 flex items-center gap-1.5 text-sm font-medium text-ink-2"><Icon as={ShieldCheck} size={16} />{t('admin.users.roles')}</p>
             <LookupMultiSelect entity="roles" value={form.roleIds} onChange={(ids) => set('roleIds', ids)} />
           </div>
           {edit?.mode === 'edit' && (
-            <p className="text-xs text-slate-500 sm:col-span-2">
+            <p className="text-xs text-ink-3 sm:col-span-2">
               {t('admin.users.telegram')}: <Badge tone={edit.user?.telegramLinked ? 'green' : 'gray'}>{edit.user?.telegramLinked ? t('admin.users.telegramLinked') : t('admin.users.telegramNone')}</Badge>
               <span className="ms-2">{t('admin.users.telegramNote')}</span>
             </p>
@@ -274,14 +325,16 @@ export default function UsersPage() {
       </Modal>
 
       <ConfirmDialog open={!!reset} onClose={() => setReset(null)} title={t('admin.users.resetPassword')} message={t('admin.users.resetBody')} danger loading={doReset.isPending} onConfirm={() => reset && doReset.mutate(reset)} />
+      <ConfirmDialog open={!!unlink} onClose={() => setUnlink(null)} title={t('admin.users.telegramUnlink')} message={t('admin.users.unlinkBody')} danger loading={doUnlink.isPending} onConfirm={() => unlink && doUnlink.mutate(unlink)} />
+      <TelegramLinkDialog open={!!tg} onClose={() => setTg(null)} info={tg?.info ?? null} subjectName={tg?.name ?? ''} />
       <ConfirmDialog open={!!revoke} onClose={() => setRevoke(null)} title={t('admin.users.revokeSessions')} message={t('admin.users.revokeBody')} danger loading={doRevoke.isPending} onConfirm={() => revoke && doRevoke.mutate(revoke)} />
       <Modal open={tempPassword !== null} onClose={() => setTempPassword(null)} size="sm" title={t('admin.users.resetPassword')} footer={<Button onClick={() => setTempPassword(null)}>{t('common.close')}</Button>}>
-        <p className="mb-2 text-sm text-slate-600">{t('admin.users.tempPassword')}</p>
-        <code dir="ltr" className="block select-all rounded-md bg-slate-100 px-3 py-2 text-center text-lg font-bold tracking-wider">{tempPassword}</code>
+        <p className="mb-2 text-sm text-ink-2">{t('admin.users.tempPassword')}</p>
+        <code dir="ltr" className="code block select-all rounded bg-surface-2 px-3 py-2 text-center text-lg font-semibold tracking-wider">{tempPassword}</code>
       </Modal>
       <Modal open={!!sig} onClose={() => { setSig(null); void reload(); }} size="lg" title={`${t('admin.users.signature')} - ${sig?.fullName ?? ''}`}>
         {sig && <SignatureManager owner="users" ownerId={sig.id} canEdit={can('signatures.manage')} onChanged={() => void reload()} />}
       </Modal>
-    </>
+    </Page>
   );
 }
