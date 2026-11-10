@@ -7,7 +7,8 @@ import { api, errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useT } from '@/lib/i18n';
 import { usePrefs } from '@/lib/prefs';
-import type { ThemePref } from '@/lib/prefs-core';
+import type { Density, ThemePref } from '@/lib/prefs-core';
+import type { NumeralSystem } from '@/lib/format';
 import {
   Avatar, Badge, Button, Card, Code, ConfirmDialog, DataTable, DateText, ErrorBlock, FormField, Icon, IconButton, Input, Page, PageHeader,
   SegmentedControl, fieldErrorsFromApi, useToast,
@@ -26,7 +27,7 @@ interface Session {
 
 export default function ProfilePage() {
   const { t, name, locale, setLocale } = useT();
-  const { theme, setTheme } = usePrefs();
+  const { theme, setTheme, numerals, setNumerals, density, setDensity } = usePrefs();
   const { me, can, reloadMe } = useAuth();
   const toast = useToast();
   const qc = useQueryClient();
@@ -114,7 +115,6 @@ export default function ProfilePage() {
         </div>
       </Card>
 
-      {/* C5 (cut): no density preference and no numerals toggle in this release. */}
       <Card title={t('shell.pref.title')}>
         <div className="space-y-4">
           <FormField label={t('shell.pref.theme')}>
@@ -127,6 +127,33 @@ export default function ProfilePage() {
                   { value: 'light', label: t('shell.pref.light'), testId: 'pref-theme-light' },
                   { value: 'dark', label: t('shell.pref.dark'), testId: 'pref-theme-dark' },
                   { value: 'system', label: t('shell.pref.system'), testId: 'pref-theme-system' },
+                ]}
+              />
+            )}
+          </FormField>
+          <FormField label={t('shell.pref.numerals')} hint={t('shell.pref.numeralsHint')}>
+            {() => (
+              <SegmentedControl<NumeralSystem>
+                ariaLabel={t('shell.pref.numerals')}
+                value={numerals}
+                onChange={setNumerals}
+                items={[
+                  { value: 'latn', label: '123', testId: 'pref-numerals-latn' },
+                  { value: 'arab', label: '١٢٣', testId: 'pref-numerals-arab' },
+                ]}
+              />
+            )}
+          </FormField>
+          <FormField label={t('shell.pref.density')}>
+            {() => (
+              <SegmentedControl<Density>
+                ariaLabel={t('shell.pref.density')}
+                value={density}
+                onChange={setDensity}
+                items={[
+                  { value: 'comfortable', label: t('shell.pref.comfortable'), testId: 'pref-density-comfortable' },
+                  { value: 'default', label: t('shell.pref.default'), testId: 'pref-density-default' },
+                  { value: 'compact', label: t('shell.pref.compact'), testId: 'pref-density-compact' },
                 ]}
               />
             )}

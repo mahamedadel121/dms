@@ -3,8 +3,7 @@ import { Api, submitSimpleRequest, type Any } from '../support/flow';
 import { bad, chooseFirst, fillEmptyTextboxes, login, openPage, watch } from '../support/ui';
 
 // Redesign checks (DESIGN_SPEC sections 8-9). Test ids and roles only.
-// Cut features (command palette, workflow route preview card, audit diff viewer, roles-matrix mobile accordion,
-// density / Arabic-Indic numerals toggle UI) are deliberately not asserted here.
+// Cut features (workflow route preview card, audit diff viewer, roles-matrix mobile accordion) are deliberately not asserted here.
 
 test.describe.configure({ mode: 'serial' });
 
@@ -56,6 +55,51 @@ test.describe('desktop', () => {
     await openPage(page, `/requests/${r.id}`, 'page-request-detail');
     await expect(page.getByTestId('request-number')).toHaveText(/^[A-Z]+-\d{2}-\d{6}$/);
     await expect(page.getByTestId('request-total')).toBeVisible();
+  });
+
+  test('Arabic-Indic numerals change amounts but not request numbers', async ({ page }) => {
+    watch(page, () => 'numerals');
+    const r = await firstQueueRequest();
+    await login(page, 'supervisor');
+    try {
+      await openPage(page, '/profile', 'page-profile');
+      await page.getByTestId('pref-numerals-arab').click();
+      await openPage(page, `/requests/${r.id}`, 'page-request-detail');
+      await expect(page.getByTestId('request-total')).toHaveText(/[٠-٩]/);
+      await expect(page.getByTestId('request-number')).toHaveText(/^[A-Z]+-\d{2}-\d{6}$/);
+    } finally {
+      await openPage(page, '/profile', 'page-profile');
+      await page.getByTestId('pref-numerals-latn').click();
+    }
+  });
+
+  test('density preference sets html[data-density] and survives a reload', async ({ page }) => {
+    watch(page, () => 'density');
+    await login(page, 'admin');
+    await openPage(page, '/profile', 'page-profile');
+    await page.getByTestId('pref-density-compact').click();
+    await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
+    await page.reload();
+    await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
+    await page.getByTestId('pref-density-default').click();
+    await expect(page.locator('html')).not.toHaveAttribute('data-density', /.+/);
+  });
+
+  test('command palette: Ctrl+K opens it and typing a page name navigates', async ({ page }) => {
+    watch(page, () => 'cmdk');
+    await login(page, 'admin');
+    await expect(page.getByTestId('topbar-search')).toBeVisible();
+    await page.keyboard.press('Control+k');
+    await expect(page.getByTestId('cmdk')).toBeVisible();
+    await expect(page.getByTestId('cmdk-input')).toBeFocused();
+    await page.getByTestId('cmdk-input').fill('reports');
+    await page.keyboard.press('Enter');
+    await page.waitForURL((u) => u.pathname === '/reports', { timeout: 20000 });
+    await expect(page.getByTestId('cmdk')).toBeHidden();
+    await page.getByTestId('topbar-search').click();
+    await expect(page.getByTestId('cmdk')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('cmdk')).toBeHidden();
   });
 
   test('request type: create, add a field and a category', async ({ page }) => {

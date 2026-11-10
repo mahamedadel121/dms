@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { ChevronRight, Menu, Moon, Sun } from 'lucide-react';
+import { ChevronRight, Menu, Moon, Search, Sun } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { usePrefs } from '@/lib/prefs';
 import { findNavItem } from '@/lib/nav';
@@ -13,7 +13,7 @@ const OUTSIDE_NAV: Record<string, string> = {
   '/notifications': 'shell.page.notifications',
 };
 
-export function TopBar({ onMenu }: { onMenu: () => void }) {
+export function TopBar({ onMenu, onSearch }: { onMenu: () => void; onSearch: () => void }) {
   const { t, locale, setLocale } = useT();
   const { resolvedTheme, setTheme } = usePrefs();
   const path = usePathname();
@@ -37,7 +37,11 @@ export function TopBar({ onMenu }: { onMenu: () => void }) {
         )}
         <span className="truncate text-base font-medium text-ink md:text-sm">{pageLabel}</span>
       </div>
-      {/* The search trigger and command palette are cut (PLAN_V2 section 10, C1). */}
+      <Button data-testid="topbar-search" variant="secondary" size="sm" className="hidden gap-2 text-ink-3 md:inline-flex" icon={<Icon as={Search} size={16} />} onClick={onSearch}>
+        <span>{t('shell.search.placeholder')}</span>
+        <kbd className="num rounded border border-hairline px-1 text-xs" dir="ltr">Ctrl K</kbd>
+      </Button>
+      <IconButton className="md:hidden" data-testid="topbar-search-mobile" icon={<Icon as={Search} />} label={t('shell.search.placeholder')} onClick={onSearch} />
       <Button data-testid="topbar-locale" variant="ghost" size="sm" className="hidden md:inline-flex" title={t('common.language')} onClick={() => setLocale(locale === 'ar' ? 'en' : 'ar')}>
         {locale === 'ar' ? 'EN' : 'ع'}
       </Button>

@@ -13,6 +13,7 @@ import { BrandMark } from '@/components/brand/BrandMark';
 import { Banner, Drawer, Icon, IconButton } from '@/components/ui';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
+import { CommandPalette } from './CommandPalette';
 import { MobileTabBar, isRequestDetailPath } from './MobileTabBar';
 import { UserMenu, UserMenuInline } from './UserMenu';
 
@@ -24,11 +25,22 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const path = usePathname();
   const [menu, setMenu] = useState(false);
+  const [palette, setPalette] = useState(false);
 
   useEffect(() => {
     if (!loading && !me) router.replace('/login');
   }, [loading, me, router]);
   useEffect(() => setMenu(false), [path]);
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPalette((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', on);
+    return () => window.removeEventListener('keydown', on);
+  }, []);
 
   if (loading || !me) {
     return (
@@ -87,12 +99,13 @@ export function AppShell({ children }: { children: ReactNode }) {
       </Drawer>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar onMenu={() => setMenu(true)} />
+        <TopBar onMenu={() => setMenu(true)} onSearch={() => setPalette(true)} />
         <main className={cn('min-w-0 flex-1 px-4 py-5 sm:px-6 lg:px-8 lg:py-7', isRequestDetailPath(path) ? 'pb-7' : 'pb-[84px] md:pb-7')}>
           {allowed ? children : <Banner tone="warning">{t('common.auth.forbiddenPage')}</Banner>}
         </main>
       </div>
       <MobileTabBar onMore={() => setMenu(true)} />
+      <CommandPalette open={palette} onClose={() => setPalette(false)} />
     </div>
   );
 }
