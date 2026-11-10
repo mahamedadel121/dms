@@ -5,38 +5,42 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>محاكي السواق - Driver simulator</title>
 <style>
-  :root { --bg:#d9e4ea; --panel:#ffffff; --me:#d6f5c3; --bot:#ffffff; --ink:#17212b; --muted:#6b7a88; --accent:#2a8bd0; --line:#cfd9e0; }
+  :root { --bg:#FAF7F2; --panel:#FFFFFF; --me:#E8ECF3; --bot:#FFFFFF; --ink:#16202F; --muted:#5E6675; --accent:#14284B; --brass:#C9A45C; --line:#E6E0D3; --well:#F1ECE2; }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
-  body { background: #b8c7d1; font-family: "Segoe UI", Tahoma, "Noto Naskh Arabic", Arial, sans-serif; color: var(--ink); display: flex; justify-content: center; }
-  .phone { width: 100%; max-width: 440px; height: 100vh; height: 100dvh; background: var(--bg); display: flex; flex-direction: column; box-shadow: 0 0 40px rgba(0,0,0,.25); }
-  header { background: #2b6a96; color: #fff; padding: 10px 12px; display: flex; gap: 8px; align-items: center; }
-  header select { flex: 1; min-width: 0; padding: 7px 8px; border-radius: 8px; border: 0; font-size: 14px; background: #fff; color: var(--ink); }
-  header button { border: 0; border-radius: 8px; padding: 7px 10px; background: rgba(255,255,255,.2); color: #fff; font-size: 13px; cursor: pointer; }
-  .banner { background: #fff3cd; color: #6b5300; font-size: 12px; padding: 5px 12px; text-align: center; }
-  #chat { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+  body { background: var(--well); font-family: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, "Noto Naskh Arabic", Arial, sans-serif; color: var(--ink); display: flex; justify-content: center; align-items: center; }
+  .phone { width: 100%; max-width: 440px; height: 100vh; height: 100dvh; background: var(--bg); display: flex; flex-direction: column; border-inline: 1px solid var(--line); box-shadow: 0 24px 64px rgba(22,32,47,.16); }
+  @media (min-width: 700px) { .phone { height: min(880px, 94dvh); border: 1px solid var(--line); border-radius: 20px; overflow: hidden; } }
+  header { background: var(--accent); color: #fff; padding: 12px 12px 10px; display: flex; gap: 8px; align-items: center; border-bottom: 2px solid var(--brass); }
+  header select { flex: 1; min-width: 0; padding: 8px 10px; border-radius: 6px; border: 0; font-size: 14px; font-family: inherit; background: #fff; color: var(--ink); }
+  header button { border: 1px solid rgba(255,255,255,.35); border-radius: 6px; padding: 7px 12px; background: transparent; color: #fff; font-size: 13px; font-family: inherit; cursor: pointer; }
+  header button:hover { background: rgba(255,255,255,.12); }
+  .banner { background: #F4EAD3; color: #6E521F; font-size: 12px; padding: 6px 12px; text-align: center; border-bottom: 1px solid var(--line); }
+  #chat { flex: 1; overflow-y: auto; padding: 14px 12px; display: flex; flex-direction: column; gap: 8px; }
   .row { display: flex; flex-direction: column; max-width: 86%; }
   .row.me { align-self: flex-start; }
   .row.bot { align-self: flex-end; }
-  .bubble { padding: 8px 11px; border-radius: 14px; line-height: 1.55; white-space: pre-wrap; word-wrap: break-word; box-shadow: 0 1px 1px rgba(0,0,0,.12); font-size: 15px; }
-  .me .bubble { background: var(--me); border-bottom-right-radius: 4px; }
-  .bot .bubble { background: var(--bot); border-bottom-left-radius: 4px; }
-  .bubble code { font-size: 22px; font-weight: 700; letter-spacing: 1px; background: #eef3f7; padding: 2px 8px; border-radius: 6px; display: inline-block; direction: ltr; }
-  .inline { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
-  .inline .r { display: flex; gap: 4px; }
-  .inline button { flex: 1; border: 0; border-radius: 8px; padding: 8px 6px; background: rgba(43,106,150,.88); color: #fff; font-size: 14px; cursor: pointer; font-family: inherit; }
-  .inline button:hover { background: #2b6a96; }
-  .inline button:disabled { opacity: .5; cursor: default; }
-  #kb { padding: 6px 8px; background: #eef2f5; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 5px; }
+  .bubble { padding: 9px 12px; border-radius: 10px; line-height: 1.7; white-space: pre-wrap; word-wrap: break-word; border: 1px solid var(--line); font-size: 15px; }
+  .me .bubble { background: var(--me); border-color: #D5DCE8; border-bottom-right-radius: 3px; }
+  .bot .bubble { background: var(--bot); border-bottom-left-radius: 3px; }
+  .bubble code { font-family: "IBM Plex Mono", Consolas, monospace; font-size: 20px; font-weight: 500; letter-spacing: 0; background: var(--well); padding: 2px 8px; border-radius: 6px; display: inline-block; direction: ltr; }
+  .inline { display: flex; flex-direction: column; gap: 5px; margin-top: 5px; }
+  .inline .r { display: flex; gap: 5px; }
+  .inline button { flex: 1; border: 1px solid var(--accent); border-radius: 6px; padding: 8px 6px; background: var(--accent); color: #fff; font-size: 14px; cursor: pointer; font-family: inherit; }
+  .inline button:hover { background: #0F1F3A; }
+  .inline button:disabled { opacity: .45; cursor: default; }
+  #kb { padding: 8px; background: var(--well); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
   #kb:empty { display: none; }
-  #kb .r { display: flex; gap: 5px; }
-  #kb button { flex: 1; padding: 11px 6px; border: 1px solid var(--line); border-radius: 9px; background: #fff; font-size: 15px; cursor: pointer; font-family: inherit; color: var(--ink); }
-  #kb button.contact { background: #e4f2ff; border-color: #9ccbee; font-weight: 600; }
+  #kb .r { display: flex; gap: 6px; }
+  #kb button { flex: 1; padding: 11px 6px; border: 1px solid #CFC7B6; border-radius: 6px; background: #fff; font-size: 15px; cursor: pointer; font-family: inherit; color: var(--ink); }
+  #kb button:hover { background: var(--bg); }
+  #kb button.contact { background: #F4EAD3; border-color: var(--brass); font-weight: 600; color: #6E521F; }
   #kb a { font-size: 12px; color: var(--muted); text-align: center; cursor: pointer; text-decoration: underline; }
-  form { display: flex; gap: 6px; padding: 8px; background: var(--panel); border-top: 1px solid var(--line); align-items: center; }
-  form input[type=text] { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 20px; border: 1px solid var(--line); font-size: 15px; font-family: inherit; }
-  form button, .attach { border: 0; border-radius: 50%; width: 40px; height: 40px; background: var(--accent); color: #fff; font-size: 18px; cursor: pointer; display: grid; place-items: center; flex: none; }
-  .attach { background: #8a99a6; }
+  form { display: flex; gap: 8px; padding: 10px; background: var(--panel); border-top: 1px solid var(--line); align-items: center; }
+  form input[type=text] { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 6px; border: 1px solid #7C8596; font-size: 16px; font-family: inherit; color: var(--ink); background: #fff; }
+  form input[type=text]:focus { outline: 2px solid #2F5FA8; outline-offset: 1px; }
+  form button, .attach { border: 0; border-radius: 6px; width: 40px; height: 40px; background: var(--accent); color: #fff; font-size: 18px; cursor: pointer; display: grid; place-items: center; flex: none; }
+  .attach { background: #fff; color: var(--muted); border: 1px solid #CFC7B6; }
   .attach input { display: none; }
   .empty { margin: auto; color: var(--muted); text-align: center; font-size: 14px; padding: 20px; }
 </style>
