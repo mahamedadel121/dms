@@ -8,6 +8,14 @@ import arTemplates from './ar/templates';
 import arReports from './ar/reports';
 import arSap from './ar/sap';
 import arDashboard from './ar/dashboard';
+import arUi from './ar/ui';
+import arShell from './ar/shell';
+import arInbox from './ar/inbox';
+import arRt from './ar/rt';
+import enUi from './en/ui';
+import enShell from './en/shell';
+import enInbox from './en/inbox';
+import enRt from './en/rt';
 import enCommon from './en/common';
 import enAdmin from './en/admin';
 import enMaster from './en/master';
@@ -21,7 +29,7 @@ import enDashboard from './en/dashboard';
 export * from './types';
 
 /** Fixed namespace list (PLAN §13). A key is `<namespace>.<key within that file>`. */
-export const NAMESPACES = ['common', 'admin', 'master', 'requests', 'workflows', 'templates', 'reports', 'sap', 'dashboard'] as const;
+export const NAMESPACES = ['common', 'admin', 'master', 'requests', 'workflows', 'templates', 'reports', 'sap', 'dashboard', 'ui', 'shell', 'inbox', 'rt'] as const;
 export type Namespace = (typeof NAMESPACES)[number];
 
 export const dictionaries: Record<Locale, Record<Namespace, Dict>> = {
@@ -35,6 +43,10 @@ export const dictionaries: Record<Locale, Record<Namespace, Dict>> = {
     reports: arReports,
     sap: arSap,
     dashboard: arDashboard,
+    ui: arUi,
+    shell: arShell,
+    inbox: arInbox,
+    rt: arRt,
   },
   en: {
     common: enCommon,
@@ -46,6 +58,10 @@ export const dictionaries: Record<Locale, Record<Namespace, Dict>> = {
     reports: enReports,
     sap: enSap,
     dashboard: enDashboard,
+    ui: enUi,
+    shell: enShell,
+    inbox: enInbox,
+    rt: enRt,
   },
 };
 

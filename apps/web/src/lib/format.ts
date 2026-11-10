@@ -3,6 +3,19 @@ export const CAIRO_TZ = 'Africa/Cairo';
 
 type Loc = 'ar' | 'en';
 
+export type NumeralSystem = 'latn' | 'arab';
+let numerals: NumeralSystem = 'latn';
+/** Process-wide numeral system for display formatting. Set by PrefsProvider. Default 'latn'. */
+export function setNumeralSystem(n: NumeralSystem): void {
+  numerals = n;
+}
+export function getNumeralSystem(): NumeralSystem {
+  return numerals;
+}
+function numLocale(): string {
+  return `en-US-u-nu-${numerals}`;
+}
+
 function toDate(v: Date | string | number | null | undefined): Date | null {
   if (v === null || v === undefined || v === '') return null;
   const d = v instanceof Date ? v : new Date(v);
@@ -71,7 +84,7 @@ export function formatNumber(v: string | number | null | undefined, decimals = 2
   if (v === null || v === undefined || v === '') return '';
   const n = typeof v === 'number' ? v : Number(v);
   if (!Number.isFinite(n)) return String(v);
-  return new Intl.NumberFormat('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n);
+  return new Intl.NumberFormat(numLocale(), { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(n);
 }
 
 /** `1,234.50 ج.م` / `EGP 1,234.50`. Latin digits are kept for accounting readability. */
@@ -86,4 +99,74 @@ export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** Wraps an identifier in LRI/PDI so it never reorders inside RTL text. */
+export function ltrIsolate(s: string): string {
+  return `⁦${s}⁩`;
+}
+
+/** Integer or decimal count with separators, honouring the numeral system: formatCount(1234) -> '1,234'. */
+export function formatCount(v: number | string | null | undefined): string {
+  if (v === null || v === undefined || v === '') return '';
+  const n = typeof v === 'number' ? v : Number(v);
+  if (!Number.isFinite(n)) return String(v);
+  return new Intl.NumberFormat(numLocale(), { maximumFractionDigits: 20 }).format(n);
+}
+
+/** Percent with one decimal: formatPercent(0.1234) -> '12.3%'. */
+export function formatPercent(ratio: number): string {
+  const s = new Intl.NumberFormat(numLocale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(ratio * 100);
+  return `${s}${numerals === 'arab' ? '٪' : '%'}`;
+}
+
+const MONTHS_EN = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const MONTHS_AR = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+
+function digits(s: string): string {
+  if (numerals !== 'arab') return s;
+  return s.replace(/[0-9]/g, (d) => String.fromCharCode(0x0660 + Number(d)));
+}
+
+/** '05/03/2026' (short) or '5 مارس 2026' / '5 March 2026' (long), Africa/Cairo. '' for null/invalid. */
+export function formatDay(v: Date | string | number | null | undefined, locale: Loc = 'ar', style: 'short' | 'long' = 'short'): string {
+  const d = toDate(v);
+  if (!d) return '';
+  const p = parts(d);
+  if (style === 'short') return digits(`${p.day}/${p.month}/${p.year}`);
+  const month = (locale === 'ar' ? MONTHS_AR : MONTHS_EN)[Number(p.month) - 1] ?? '';
+  return digits(`${Number(p.day)} ${month} ${p.year}`);
+}
+
+/** '14:30' (Cairo). */
+export function formatTime(v: Date | string | number | null | undefined): string {
+  const d = toDate(v);
+  if (!d) return '';
+  const p = parts(d);
+  return digits(`${p.hour}:${p.minute}`);
+}
+
+/** '05/03/2026 14:30' (24h, Cairo). */
+export function formatDayTime(v: Date | string | number | null | undefined, locale: Loc = 'ar'): string {
+  const d = toDate(v);
+  if (!d) return '';
+  return `${formatDay(d, locale, 'short')} ${formatTime(d)}`;
+}
+
+/** Relative time; older than 7 days falls back to formatDay short. Strings mirror the `ui.rel.*` keys. */
+export function formatRelative(v: Date | string | number | null | undefined, locale: Loc = 'ar', now: number = Date.now()): string {
+  const d = toDate(v);
+  if (!d) return '';
+  const diff = Math.max(0, now - d.getTime());
+  const min = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+  const n = (x: number) => digits(String(x));
+  const ar = locale === 'ar';
+  if (min < 1) return ar ? 'الآن' : 'now';
+  if (min < 60) return ar ? `منذ ${n(min)} دقيقة` : `${n(min)} min ago`;
+  if (hours < 24) return ar ? `منذ ${n(hours)} ساعة` : `${n(hours)} h ago`;
+  if (days < 2) return ar ? 'أمس' : 'yesterday';
+  if (days <= 7) return ar ? `منذ ${n(days)} أيام` : `${n(days)} days ago`;
+  return formatDay(d, locale, 'short');
 }

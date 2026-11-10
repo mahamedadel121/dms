@@ -4,6 +4,8 @@ import { useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { I18nProvider } from './i18n';
 import { AuthProvider } from './auth';
+import { PrefsProvider } from './prefs';
+import { DirectionRoot } from '@/components/ui/Overlay';
 import { ToastProvider } from '@/components/ui/Toast';
 
 export function Providers({ children }: { children: ReactNode }) {
@@ -26,9 +28,13 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={client}>
       <I18nProvider>
-        <ToastProvider>
-          <AuthProvider>{children}</AuthProvider>
-        </ToastProvider>
+        <PrefsProvider>
+          <DirectionRoot>
+            <ToastProvider>
+              <AuthProvider>{children}</AuthProvider>
+            </ToastProvider>
+          </DirectionRoot>
+        </PrefsProvider>
       </I18nProvider>
     </QueryClientProvider>
   );

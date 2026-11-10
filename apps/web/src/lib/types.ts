@@ -21,6 +21,7 @@ export interface Me {
   permissions: string[];
   hasSignature: boolean;
   mustChangePassword?: boolean;
+  telegramLinked?: boolean;
 }
 
 export interface Paged<T> {
