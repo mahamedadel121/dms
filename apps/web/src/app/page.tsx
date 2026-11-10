@@ -1,8 +1,20 @@
+'use client';
+
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/lib/auth';
+import { NAV } from '@/lib/nav';
+import { LoadingBlock } from '@/components/ui/Display';
+
+/** Sends the user to the first page their permissions allow. */
 export default function Home() {
-  return (
-    <main className="p-8 text-start">
-      <h1 className="text-2xl font-bold">نظام إدارة المستندات</h1>
-      <p className="mt-2 text-slate-600">DMS - Phase 1: Driver Expense Claims</p>
-    </main>
-  );
+  const { me, loading, can } = useAuth();
+  const router = useRouter();
+  useEffect(() => {
+    if (loading) return;
+    if (!me) return router.replace('/login');
+    const first = NAV.flatMap((g) => g.items).find((i) => can(i.permission));
+    router.replace(first?.href ?? '/profile');
+  }, [loading, me, can, router]);
+  return <LoadingBlock />;
 }
