@@ -53,6 +53,8 @@ function stopAll(): void {
 
 async function main(): Promise<void> {
   if (!existsSync(join(root, 'node_modules'))) step('Installing dependencies', 'pnpm install');
+  // A fresh `pnpm install` leaves @prisma/client un-generated; nothing else is running yet, so no EPERM risk.
+  step('Generating Prisma client', 'pnpm db:generate');
   step('Starting PostgreSQL (private cluster on :54329)', 'pnpm db:up');
   step('Applying migrations', 'pnpm db:migrate');
   if (!noSeed) step('Seeding base data + demo requests', 'pnpm db:seed');
