@@ -44,7 +44,11 @@ interface Cfg {
   normalize?: (input: Row) => Row;
 }
 
-const dec = (v: unknown): string | null => (v === null || v === undefined ? null : String(v));
+const dec = (v: unknown): string | null => {
+  if (v === null || v === undefined) return null;
+  const d = v as { toFixed?: (n: number) => string };
+  return typeof d.toFixed === 'function' ? d.toFixed(2) : String(v);
+};
 const bool = (s: string | undefined): boolean | undefined => {
   if (s === undefined || s === '') return undefined;
   return ['true', '1', 'yes', 'y', 'نعم'].includes(s.trim().toLowerCase());
