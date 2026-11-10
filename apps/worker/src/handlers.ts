@@ -4,6 +4,7 @@ import { DomainError } from '@dms/core/errors';
 import type { JobHandler, JobSchedule } from '@dms/core/jobs';
 import { finalizeRequestPdf } from '@dms/core/pdf';
 import { runExport, expireExports } from '@dms/core/reports';
+import { sendEmailNotification } from '@dms/core/email';
 import { processSapPosting } from '@dms/core/sap';
 import { runSlaScan, sweepBotDrafts } from '@dms/core/sla';
 import { getStorage, type StorageAdapter } from '@dms/core/storage';
@@ -19,9 +20,9 @@ export function createHandlers(deps: WorkerDeps = {}): Record<string, JobHandler
   const storage = deps.storage ?? getStorage;
   return {
     [JOB_TYPES.SAP_POST]: async (job: Job, { prisma }: Ctx) => {
-      const p = (job.payload ?? {}) as { postingId?: string; trigger?: 'AUTO' | 'MANUAL'; userId?: string };
+      const p = (job.payload ?? {}) as { postingId?: string; trigger?: 'AUTO' | 'MANUAL'; userId?: string; force?: boolean };
       if (!p.postingId) throw Object.assign(new DomainError('VALIDATION', 'sap.post needs postingId'), { fatal: true });
-      const r = await processSapPosting(prisma, p.postingId, { trigger: p.trigger ?? 'AUTO', userId: p.userId });
+      const r = await processSapPosting(prisma, p.postingId, { trigger: p.trigger ?? 'AUTO', userId: p.userId, force: p.force === true });
       return { status: r.status, sapDocNumber: r.sapDocNumber };
     },
     [JOB_TYPES.PDF_FINALIZE]: async (job: Job, { prisma }: Ctx) => {
@@ -38,8 +39,11 @@ export function createHandlers(deps: WorkerDeps = {}): Record<string, JobHandler
     [JOB_TYPES.SLA_SCAN]: async (_job: Job, { prisma }: Ctx) => runSlaScan(prisma),
     [JOB_TYPES.BOT_DRAFT_SWEEP]: async (_job: Job, { prisma }: Ctx) => sweepBotDrafts(prisma, storage()),
     [JOB_TYPES.EXPORTS_SWEEP]: async (_job: Job, { prisma }: Ctx) => expireExports(prisma, storage()),
-    // TODO(WP4): e-mail delivery is a stub (D52); the job is consumed so it does not pile up.
-    [JOB_TYPES.EMAIL_SEND]: async () => ({ skipped: true }),
+    [JOB_TYPES.EMAIL_SEND]: async (job: Job, { prisma }: Ctx) => {
+      const p = (job.payload ?? {}) as { notificationId?: string };
+      if (!p.notificationId) throw Object.assign(new DomainError('VALIDATION', 'email.send needs notificationId'), { fatal: true });
+      return sendEmailNotification(prisma, p.notificationId);
+    },
   };
 }
 

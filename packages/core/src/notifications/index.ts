@@ -2,6 +2,7 @@ import type { Db } from '../common';
 import { enqueueJob } from '../jobs/enqueue';
 import { toJsonValue } from '../audit';
 import { DomainError } from '../errors';
+import { getConfig, getSetting } from '../config';
 
 export { submitterMessages, userMessages } from './messages';
 
@@ -34,6 +35,63 @@ export async function notifyUsers(db: Db, n: NotifyBase & { userIds: string[] })
       sentAt: new Date(),
     })),
   });
+  try {
+    await fanOutUserChannels(db, n, ids);
+  } catch (e) {
+    console.warn('notification fan-out failed', e);
+  }
+}
+
+/** E-mail and Telegram rows + outbox jobs for users, according to the notification settings. */
+export async function fanOutUserChannels(db: Db, n: NotifyBase, userIds: string[]): Promise<{ email: number; telegram: number }> {
+  const out = { email: 0, telegram: 0 };
+  const ids = [...new Set(userIds.filter(Boolean))];
+  if (ids.length === 0) return out;
+  const matches = (types: string[]) => types.includes('*') || types.includes(n.type);
+  const row = (channel: 'EMAIL' | 'TELEGRAM', recipientUserId: string) => ({
+    channel,
+    recipientUserId,
+    type: n.type,
+    requestId: n.requestId ?? null,
+    titleAr: n.titleAr,
+    titleEn: n.titleEn ?? null,
+    bodyAr: n.bodyAr,
+    bodyEn: n.bodyEn ?? null,
+    data: toJsonValue(n.data),
+    status: 'PENDING' as const,
+  });
+
+  if (getConfig().EMAIL_DRIVER !== 'none') {
+    const cfg = await getSetting(db, 'notifications.email');
+    if (cfg.enabled && matches(cfg.types)) {
+      const users = await db.user.findMany({
+        where: { id: { in: ids }, isActive: true, email: { not: null } },
+        select: { id: true, email: true },
+      });
+      for (const u of users) {
+        if (!u.email || !u.email.trim()) continue;
+        const created = await db.notification.create({ data: row('EMAIL', u.id), select: { id: true } });
+        await enqueueJob(db, { type: 'email.send', payload: { notificationId: created.id }, dedupeKey: `email.send:${created.id}` });
+        out.email++;
+      }
+    }
+  }
+
+  const tg = await getSetting(db, 'notifications.telegramUsers');
+  if (tg.enabled && matches(tg.types)) {
+    const users = await db.user.findMany({ where: { id: { in: ids }, isActive: true, telegramChatId: { not: null } }, select: { id: true } });
+    for (const u of users) {
+      const created = await db.notification.create({ data: row('TELEGRAM', u.id), select: { id: true } });
+      await enqueueJob(db, {
+        type: 'telegram.send',
+        queue: 'telegram',
+        payload: { notificationId: created.id },
+        dedupeKey: `telegram.send:${created.id}`,
+      });
+      out.telegram++;
+    }
+  }
+  return out;
 }
 
 /** Active holders of the role plus active delegates (delegation window, not revoked). */
