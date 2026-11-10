@@ -136,8 +136,8 @@ const expenseModule: RequestModule = {
         (await tx.treasury.findFirst({ where: { isActive: true }, orderBy: { createdAt: 'asc' } })));
     if (!treasury) throw new DomainError('VALIDATION', 'No treasury available for payment');
     await tx.expenseRequest.update({ where: { requestId: req.id }, data: { treasuryId: treasury.id } });
-    const existing = await tx.sapPosting.findUnique({ where: { requestId: req.id } });
-    if (!existing) {
+    let posting = await tx.sapPosting.findUnique({ where: { requestId: req.id } });
+    if (!posting) {
       let payload: unknown;
       try {
         payload = await buildJournalEntry(tx, req.id);
@@ -147,7 +147,7 @@ const expenseModule: RequestModule = {
           payload = { idempotencyKey: req.id, reference: req.number, pending: 'buildJournalEntry not implemented' };
         } else throw e;
       }
-      await tx.sapPosting.create({
+      posting = await tx.sapPosting.create({
         data: {
           requestId: req.id,
           idempotencyKey: req.id,
@@ -157,7 +157,7 @@ const expenseModule: RequestModule = {
         },
       });
     }
-    await enqueueJob(tx, { type: 'sap.post', payload: { requestId: req.id }, dedupeKey: `sap.post:${req.id}` });
+    await enqueueJob(tx, { type: 'sap.post', payload: { postingId: posting.id, trigger: 'AUTO' }, dedupeKey: `sap.post:${req.id}` });
     await enqueueJob(tx, { type: 'pdf.finalize', payload: { requestId: req.id }, dedupeKey: `pdf.finalize:${req.id}` });
   },
 
