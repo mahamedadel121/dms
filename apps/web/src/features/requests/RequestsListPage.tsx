@@ -1,15 +1,19 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { FileSearch } from 'lucide-react';
+import { FilePlus2, FileSearch } from 'lucide-react';
+import type { RequestTypeDto } from '@dms/shared';
 import { api } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 import { cairoDayToIso } from '@/lib/format';
 import {
-  Avatar, Code, DataTable, DateRange, DateText, ErrorBlock, FilterBar, FormField, Icon, LookupSelect, Money, Page, PageHeader, SearchInput, Select, StatusChip,
+  Avatar, Button, Code, DataTable, DateRange, DateText, ErrorBlock, FilterBar, FormField, Icon, LookupSelect, Money, Page, PageHeader, SearchInput, Select, StatusChip,
   type Column,
 } from '@/components/ui';
 import { useTr } from '../common/useTr';
+import { webTypes } from '../request-submit/model';
 import type { Paged, RequestListItem } from '../types';
 
 const STATUSES = ['IN_REVIEW', 'CORRECTION_REQUESTED', 'APPROVED', 'PAID', 'REJECTED'];
@@ -17,6 +21,11 @@ const EMPTY = { status: '', number: '', submitterId: '', vehicleId: '', stepRole
 
 export function RequestsListPage() {
   const { t } = useTr();
+  const { can } = useAuth();
+  const router = useRouter();
+  const canSubmit = can('requests.create');
+  const types = useQuery({ queryKey: ['request-types', 'web'], queryFn: () => api.get<RequestTypeDto[]>('/request-types'), enabled: canSubmit });
+  const showNew = canSubmit && webTypes(types.data ?? []).length > 0;
   const [f, setF] = useState(EMPTY);
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState('submittedAt:desc');
@@ -63,7 +72,16 @@ export function RequestsListPage() {
 
   return (
     <Page testId="page-requests">
-      <PageHeader title={t('requests.list.title')} />
+      <PageHeader
+        title={t('requests.list.title')}
+        actions={
+          showNew ? (
+            <Button data-testid="requests-new" icon={<Icon as={FilePlus2} />} onClick={() => router.push('/requests/new')}>
+              {t('requests.submit.new')}
+            </Button>
+          ) : undefined
+        }
+      />
       <FilterBar
         activeCount={activeCount}
         onReset={() => {

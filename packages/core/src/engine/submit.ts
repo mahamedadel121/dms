@@ -33,6 +33,17 @@ export async function flagDuplicatesSafe(tx: import('../common').Db, requestId: 
   }
 }
 
+/** Idempotent replay: a web clientKey must never hand another user's request back. */
+function sameKeyResult(
+  existing: { id: string; number: string; submittedByUserId: string | null },
+  input: SubmitRequestInput,
+): { id: string; number: string } {
+  if (input.submittedByUserId && existing.submittedByUserId && existing.submittedByUserId !== input.submittedByUserId) {
+    throw new DomainError('CONFLICT', 'clientKey is already used by another submission');
+  }
+  return { id: existing.id, number: existing.number };
+}
+
 /**
  * Submits a request (PLAN 5.3): validate, idempotency by clientKey, gap-free number from the row-locked
  * counter, lines, attachments, module hook, steps, first advance. One transaction.
@@ -43,16 +54,16 @@ export async function submitRequest(
   actor: Actor,
 ): Promise<{ id: string; number: string }> {
   if (input.clientKey) {
-    const existing = await prisma.request.findUnique({ where: { clientKey: input.clientKey }, select: { id: true, number: true } });
-    if (existing) return existing;
+    const existing = await prisma.request.findUnique({ where: { clientKey: input.clientKey }, select: { id: true, number: true, submittedByUserId: true } });
+    if (existing) return sameKeyResult(existing, input);
   }
   try {
     return await runTx(prisma, (tx) => submitInTx(tx, input, actor));
   } catch (e) {
     // concurrent double-submit with the same clientKey: the loser hits the unique index
     if (input.clientKey && e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-      const existing = await prisma.request.findUnique({ where: { clientKey: input.clientKey }, select: { id: true, number: true } });
-      if (existing) return existing;
+      const existing = await prisma.request.findUnique({ where: { clientKey: input.clientKey }, select: { id: true, number: true, submittedByUserId: true } });
+      if (existing) return sameKeyResult(existing, input);
     }
     throw e;
   }

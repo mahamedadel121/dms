@@ -96,7 +96,7 @@ export class RequestsController {
       originalName: file.originalname,
       uploadedByUserId: user.id,
     });
-    return { attachmentId: a.id };
+    return { attachmentId: a.id, mimeType: a.mimeType };
   }
 
   @Post()
