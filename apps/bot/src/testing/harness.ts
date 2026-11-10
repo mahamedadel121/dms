@@ -43,6 +43,10 @@ export interface HarnessUser {
   document(bytes: Buffer, name: string, mime?: string): Promise<void>;
   /** tap an inline button (by label or callback data) or a reply-keyboard button (by label) */
   click(labelOrData: string, o?: { stale?: boolean }): Promise<void>;
+  /** tap the inline button `data` of one specific message (what a real tap does) */
+  clickOn(msgId: number, data: string): Promise<void>;
+  /** the reply keyboard currently shown to this user (persists until the bot removes it) */
+  replyKeyboard(): { text: string; contact?: boolean }[][] | undefined;
   sent(): SentMessage[];
   lastText(): string | undefined;
   /** all texts sent since the last call of this method */
@@ -200,6 +204,19 @@ export function createBotHarness(opts: BotHarnessOptions) {
         const avail = list.slice(-3).flatMap((m) => m.inline.flat().map((b) => b.text));
         throw new Error(`harness: button "${x}" not found (inline now: ${avail.join(' | ')})`);
       },
+      clickOn: async (msgId, data) => {
+        const m = (messages.get(tgId) ?? []).find((x) => x.id === msgId);
+        await send({
+          callback_query: {
+            id: `cb-${++messageCounter}`,
+            from,
+            chat_instance: 'harness',
+            data,
+            message: { message_id: msgId, date: Math.floor(Date.now() / 1000), chat, text: m?.text ?? '', from: { id: 123456, is_bot: true, first_name: 'bot' } },
+          },
+        });
+      },
+      replyKeyboard: () => replyKb.get(tgId),
       sent: () => messages.get(tgId) ?? [],
       lastText: () => messages.get(tgId)?.at(-1)?.text,
       drain: () => {

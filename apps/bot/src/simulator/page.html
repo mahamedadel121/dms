@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>محاكي السواق - Driver simulator</title>
+<style>
+  :root { --bg:#d9e4ea; --panel:#ffffff; --me:#d6f5c3; --bot:#ffffff; --ink:#17212b; --muted:#6b7a88; --accent:#2a8bd0; --line:#cfd9e0; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: #b8c7d1; font-family: "Segoe UI", Tahoma, "Noto Naskh Arabic", Arial, sans-serif; color: var(--ink); display: flex; justify-content: center; }
+  .phone { width: 100%; max-width: 440px; height: 100vh; height: 100dvh; background: var(--bg); display: flex; flex-direction: column; box-shadow: 0 0 40px rgba(0,0,0,.25); }
+  header { background: #2b6a96; color: #fff; padding: 10px 12px; display: flex; gap: 8px; align-items: center; }
+  header select { flex: 1; min-width: 0; padding: 7px 8px; border-radius: 8px; border: 0; font-size: 14px; background: #fff; color: var(--ink); }
+  header button { border: 0; border-radius: 8px; padding: 7px 10px; background: rgba(255,255,255,.2); color: #fff; font-size: 13px; cursor: pointer; }
+  .banner { background: #fff3cd; color: #6b5300; font-size: 12px; padding: 5px 12px; text-align: center; }
+  #chat { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .row { display: flex; flex-direction: column; max-width: 86%; }
+  .row.me { align-self: flex-start; }
+  .row.bot { align-self: flex-end; }
+  .bubble { padding: 8px 11px; border-radius: 14px; line-height: 1.55; white-space: pre-wrap; word-wrap: break-word; box-shadow: 0 1px 1px rgba(0,0,0,.12); font-size: 15px; }
+  .me .bubble { background: var(--me); border-bottom-right-radius: 4px; }
+  .bot .bubble { background: var(--bot); border-bottom-left-radius: 4px; }
+  .bubble code { font-size: 22px; font-weight: 700; letter-spacing: 1px; background: #eef3f7; padding: 2px 8px; border-radius: 6px; display: inline-block; direction: ltr; }
+  .inline { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+  .inline .r { display: flex; gap: 4px; }
+  .inline button { flex: 1; border: 0; border-radius: 8px; padding: 8px 6px; background: rgba(43,106,150,.88); color: #fff; font-size: 14px; cursor: pointer; font-family: inherit; }
+  .inline button:hover { background: #2b6a96; }
+  .inline button:disabled { opacity: .5; cursor: default; }
+  #kb { padding: 6px 8px; background: #eef2f5; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 5px; }
+  #kb:empty { display: none; }
+  #kb .r { display: flex; gap: 5px; }
+  #kb button { flex: 1; padding: 11px 6px; border: 1px solid var(--line); border-radius: 9px; background: #fff; font-size: 15px; cursor: pointer; font-family: inherit; color: var(--ink); }
+  #kb button.contact { background: #e4f2ff; border-color: #9ccbee; font-weight: 600; }
+  #kb a { font-size: 12px; color: var(--muted); text-align: center; cursor: pointer; text-decoration: underline; }
+  form { display: flex; gap: 6px; padding: 8px; background: var(--panel); border-top: 1px solid var(--line); align-items: center; }
+  form input[type=text] { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 20px; border: 1px solid var(--line); font-size: 15px; font-family: inherit; }
+  form button, .attach { border: 0; border-radius: 50%; width: 40px; height: 40px; background: var(--accent); color: #fff; font-size: 18px; cursor: pointer; display: grid; place-items: center; flex: none; }
+  .attach { background: #8a99a6; }
+  .attach input { display: none; }
+  .empty { margin: auto; color: var(--muted); text-align: center; font-size: 14px; padding: 20px; }
+</style>
+</head>
+<body>
+<div class="phone">
+  <header>
+    <select id="driver" aria-label="driver"></select>
+    <button id="reset" title="يفك ربط الحساب ويمسح المحادثة عشان تجرب من الأول">إعادة ضبط</button>
+  </header>
+  <div class="banner">محاكي محلي - مش تليجرام حقيقي. نفس البوت ونفس قاعدة البيانات.</div>
+  <div id="chat"></div>
+  <div id="kb"></div>
+  <form id="form" autocomplete="off">
+    <label class="attach" title="ابعت صورة أو PDF">📎<input id="file" type="file" accept="image/*,application/pdf" multiple></label>
+    <input id="text" type="text" placeholder="اكتب رسالة..." enterkeyhint="send">
+    <button type="submit" aria-label="send">&#10148;</button>
+  </form>
+</div>
+<script>
+(function () {
+  var chat = document.getElementById('chat');
+  var kb = document.getElementById('kb');
+  var sel = document.getElementById('driver');
+  var text = document.getElementById('text');
+  var busy = false;
+  var last = '';
+
+  function driver() { return sel.value; }
+  function q() { return '?driver=' + encodeURIComponent(driver()); }
+
+  function fmt(t, html) {
+    var s = String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    if (html) s = s.replace(/&lt;(\/?)(b|code)&gt;/g, '<$1$2>');
+    return s;
+  }
+
+  function render(data) {
+    var sig = JSON.stringify(data);
+    if (sig === last) return;
+    last = sig;
+    var nearBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 80;
+    chat.innerHTML = '';
+    if (!data.entries.length) {
+      var e = document.createElement('div');
+      e.className = 'empty';
+      e.textContent = 'اكتب /start عشان تبدأ المحادثة';
+      chat.appendChild(e);
+    }
+    data.entries.forEach(function (en, i) {
+      var row = document.createElement('div');
+      row.className = 'row ' + (en.kind === 'user' ? 'me' : 'bot');
+      var b = document.createElement('div');
+      b.className = 'bubble';
+      if (en.kind === 'user') b.textContent = en.text;
+      else b.innerHTML = fmt(en.text, en.html);
+      row.appendChild(b);
+      if (en.kind === 'bot' && en.inline && en.inline.length) {
+        var box = document.createElement('div');
+        box.className = 'inline';
+        en.inline.forEach(function (r) {
+          var rr = document.createElement('div');
+          rr.className = 'r';
+          r.forEach(function (btn) {
+            var bt = document.createElement('button');
+            bt.type = 'button';
+            bt.textContent = btn.text;
+            bt.onclick = function () { post({ type: 'click', msgId: en.id, data: btn.data }); };
+            rr.appendChild(bt);
+          });
+          box.appendChild(rr);
+        });
+        row.appendChild(box);
+      }
+      chat.appendChild(row);
+    });
+    if (nearBottom || data.entries.length) chat.scrollTop = chat.scrollHeight;
+
+    kb.innerHTML = '';
+    var hasContact = false;
+    (data.replyKeyboard || []).forEach(function (r) {
+      var rr = document.createElement('div');
+      rr.className = 'r';
+      r.forEach(function (btn) {
+        var bt = document.createElement('button');
+        bt.type = 'button';
+        bt.textContent = btn.text;
+        if (btn.contact) {
+          hasContact = true;
+          bt.className = 'contact';
+          bt.onclick = function () { post({ type: 'contact', mode: 'own' }); };
+        } else {
+          bt.onclick = function () { post({ type: 'text', text: btn.text }); };
+        }
+        rr.appendChild(bt);
+      });
+      kb.appendChild(rr);
+    });
+    if (hasContact) {
+      var a = document.createElement('a');
+      a.textContent = 'تجربة انتحال: شارك رقم شخص تاني';
+      a.onclick = function () { post({ type: 'contact', mode: 'foreign' }); };
+      kb.appendChild(a);
+    }
+  }
+
+  function call(path, opts) {
+    return fetch(path, opts).then(function (r) { return r.json(); });
+  }
+
+  function post(body) {
+    if (busy) return Promise.resolve();
+    busy = true;
+    return call('/api/send' + q(), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+      .then(render).catch(function (e) { alert(e.message); })
+      .then(function () { busy = false; });
+  }
+
+  function poll() {
+    if (busy || !driver()) return;
+    call('/api/log' + q()).then(render).catch(function () {});
+  }
+
+  document.getElementById('form').onsubmit = function (ev) {
+    ev.preventDefault();
+    var v = text.value.trim();
+    if (!v) return;
+    text.value = '';
+    post({ type: 'text', text: v });
+  };
+
+  document.getElementById('reset').onclick = function () {
+    if (confirm('تفك ربط السواق ده وتمسح المحادثة؟')) post({ type: 'reset' });
+  };
+
+  document.getElementById('file').onchange = function (ev) {
+    var files = Array.prototype.slice.call(ev.target.files);
+    ev.target.value = '';
+    var p = Promise.resolve();
+    busy = true;
+    files.forEach(function (f) {
+      p = p.then(function () {
+        return call('/api/upload' + q() + '&name=' + encodeURIComponent(f.name) + '&mime=' + encodeURIComponent(f.type || 'image/jpeg'), { method: 'POST', body: f }).then(render);
+      });
+    });
+    p.catch(function (e) { alert(e.message); }).then(function () { busy = false; });
+  };
+
+  sel.onchange = function () { last = ''; try { localStorage.setItem('simDriver', sel.value); } catch (e) {} poll(); };
+
+  call('/api/drivers').then(function (list) {
+    var saved = null;
+    try { saved = localStorage.getItem('simDriver'); } catch (e) {}
+    list.forEach(function (d) {
+      var o = document.createElement('option');
+      o.value = d.code;
+      o.textContent = d.code + ' - ' + d.name + (d.vehicle ? ' (عربية ' + d.vehicle + ')' : '') + (d.linked ? ' - مربوط' : '');
+      sel.appendChild(o);
+    });
+    if (saved) sel.value = saved;
+    poll();
+    setInterval(poll, 1500);
+  });
+})();
+</script>
+</body>
+</html>
