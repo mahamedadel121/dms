@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import { Badge, Card, EmptyState, ErrorBlock, LoadingBlock, PageHeader } from '@/components/ui/Display';
+import { Badge, Button, Card, Code, EmptyState, ErrorBlock, Page, PageHeader, Skeleton, StatusChip } from '@/components/ui';
 import { useTr } from '../common/useTr';
 import type { PagedResult, WorkflowDto } from '../types';
 
@@ -18,34 +18,52 @@ export function WorkflowsListPage() {
       return Array.isArray(r) ? r : r.items;
     },
   });
+  const rows = q.data ?? [];
   return (
-    <div>
+    <Page testId="page-workflows">
       <PageHeader title={t('workflows.title')} subtitle={t('workflows.subtitle')} />
-      {q.isError && <ErrorBlock message={(q.error as Error).message} />}
+      {q.isError && <ErrorBlock message={(q.error as Error).message} onRetry={() => q.refetch()} />}
       {q.isLoading ? (
-        <LoadingBlock />
-      ) : (q.data ?? []).length === 0 ? (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-36 w-full" />
+          ))}
+        </div>
+      ) : rows.length === 0 ? (
         <Card>
           <EmptyState />
         </Card>
       ) : (
-        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {(q.data ?? []).map((w) => {
-            return (
-              <li key={w.id}>
-                <Link href={`/workflows/${w.id}`} className="block rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:border-brand-500">
-                  <h3 className="font-bold text-slate-900">{locale === 'ar' ? w.nameAr : w.nameEn || w.nameAr}</h3>
-                  <p className="text-xs text-slate-500">{w.requestTypeCode}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {w.activeVersion ? <Badge tone="green">{t('workflows.activeVersion', { n: w.activeVersion })}</Badge> : null}
-                    {!w.isActive && <Badge>{t('common.inactive')}</Badge>}
+        <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {rows.map((w) => (
+            <li key={w.id}>
+              <Card className="h-full">
+                <div data-testid="workflow-card" className="flex h-full flex-col gap-3">
+                  <div className="min-w-0">
+                    <h3 className="text-lg font-semibold text-ink">{locale === 'ar' ? w.nameAr : w.nameEn || w.nameAr}</h3>
+                    <Code className="text-xs text-ink-3">{w.requestTypeCode}</Code>
                   </div>
-                </Link>
-              </li>
-            );
-          })}
+                  <div className="flex flex-wrap gap-2">
+                    {w.activeVersion ? (
+                      <StatusChip kind="version" status="ACTIVE" label={`v${w.activeVersion}`} />
+                    ) : (
+                      <Badge tone="gray">{t('workflows.noActiveVersion')}</Badge>
+                    )}
+                    {!w.isActive && <Badge tone="gray">{t('common.inactive')}</Badge>}
+                  </div>
+                  <div className="mt-auto">
+                    <Link href={`/workflows/${w.id}`}>
+                      <Button variant="secondary" size="sm" tabIndex={-1}>
+                        {t('workflows.open')}
+                      </Button>
+                    </Link>
+                  </div>
+                </div>
+              </Card>
+            </li>
+          ))}
         </ul>
       )}
-    </div>
+    </Page>
   );
 }
