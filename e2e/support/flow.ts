@@ -101,6 +101,11 @@ export class SimDriver {
     }
     return this.text(label);
   }
+  /** types the odometer and confirms the "are you sure" warning when the reading differs a lot from the last one */
+  async odometer(v: string) {
+    await this.text(v);
+    if ((await this.lastText()).includes('متأكد')) await this.click('الرقم صح');
+  }
   async addLine(type: string, amount: string, extra: string[] = [], photos = 1) {
     await this.click(type);
     await this.text(amount);
@@ -133,7 +138,7 @@ export async function submitSimpleRequest(code: string, amount = '100'): Promise
   await d.contact();
   await d.click('طلب جديد');
   await d.click('أيوه');
-  await d.text(String(100000 + Math.floor(Math.random() * 50000)));
+  await d.odometer(String(100000 + Math.floor(Math.random() * 50000)));
   await d.addLine('رسوم طرق', amount);
   await d.click('كده خلصت');
   await d.click('تأكيد وإرسال');

@@ -16,7 +16,7 @@ test('driver submits a 3-line request through the bot simulator', async () => {
   await drv.contact();
   await drv.click('طلب جديد');
   await drv.click('أيوه');
-  await drv.text('150000');
+  await drv.odometer('150000');
   await drv.addLine('صيانة', '1500');
   await drv.click('إضافة مصروف تاني');
   await drv.addLine('إكراميات', '100');
@@ -121,7 +121,7 @@ test('correction round trip: supervisor asks for a new photo, driver fixes it in
   await d2.contact();
   await d2.click('طلب جديد');
   await d2.click('أيوه');
-  await d2.text('88000');
+  await d2.odometer('88000');
   await d2.addLine('رسوم طرق', '100');
   await d2.click('كده خلصت');
   await d2.click('تأكيد وإرسال');
