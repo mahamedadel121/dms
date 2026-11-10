@@ -4,6 +4,8 @@ import { createContext, useCallback, useContext, useMemo, useRef, useState, type
 import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { errorMessage } from '@/lib/api';
+import { useT } from '@/lib/i18n';
+import { Icon } from './Icon';
 
 type Kind = 'success' | 'error' | 'info';
 interface ToastItem {
@@ -21,13 +23,14 @@ export interface ToastApi {
 const Ctx = createContext<ToastApi | null>(null);
 
 const styles: Record<Kind, string> = {
-  success: 'border-emerald-300 bg-emerald-50 text-emerald-900',
-  error: 'border-red-300 bg-red-50 text-red-900',
-  info: 'border-sky-300 bg-sky-50 text-sky-900',
+  success: 'border-s-success text-success',
+  error: 'border-s-danger text-danger',
+  info: 'border-s-info text-info',
 };
 const icons = { success: CheckCircle2, error: AlertCircle, info: Info };
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const { t } = useT();
   const [items, setItems] = useState<ToastItem[]>([]);
   const seq = useRef(0);
 
@@ -53,19 +56,24 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <Ctx.Provider value={api}>
       {children}
-      <div className="pointer-events-none fixed bottom-4 end-4 start-4 z-[60] flex flex-col items-end gap-2 sm:start-auto sm:w-96" aria-live="polite">
-        {items.map((it) => {
-          const Icon = icons[it.kind];
-          return (
-            <div key={it.id} className={cn('pointer-events-auto flex w-full items-start gap-2 rounded-lg border px-3 py-2 text-sm shadow-md', styles[it.kind])}>
-              <Icon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              <span className="flex-1 break-words">{it.message}</span>
-              <button type="button" onClick={() => dismiss(it.id)} aria-label="close">
-                <X className="h-4 w-4 opacity-60" />
-              </button>
-            </div>
-          );
-        })}
+      <div className="pointer-events-none fixed inset-x-4 bottom-[76px] z-toast flex flex-col gap-2 md:inset-x-auto md:bottom-4 md:end-4 md:w-96">
+        {items.map((it) => (
+          <div
+            key={it.id}
+            data-testid={'toast-' + it.kind}
+            role={it.kind === 'error' ? 'alert' : 'status'}
+            className={cn(
+              'pointer-events-auto flex items-start gap-3 rounded-lg border border-s-[3px] border-hairline bg-surface px-4 py-3 text-sm text-ink shadow-pop animate-pop-in',
+              styles[it.kind],
+            )}
+          >
+            <Icon as={icons[it.kind]} size={18} className="mt-0.5" />
+            <span className="flex-1 break-words text-ink">{it.message}</span>
+            <button type="button" onClick={() => dismiss(it.id)} aria-label={t('common.close')} className="text-ink-3 hover:text-ink">
+              <Icon as={X} size={16} />
+            </button>
+          </div>
+        ))}
       </div>
     </Ctx.Provider>
   );

@@ -2,21 +2,58 @@
 
 import { useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Upload } from 'lucide-react';
+import { ArrowRight, CalendarRange, Plus, Upload, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/cn';
+import { todayCairo } from '@/lib/format';
 import { useT } from '@/lib/i18n';
 import type { LookupItem } from '@/lib/types';
-import { Checkbox, Input, Select } from './Fields';
+import { Button } from './Button';
+import { Badge } from './Display';
+import { Checkbox, SearchInput, Select } from './Fields';
+import { Icon } from './Icon';
+import { DateField } from './DateField';
+import { Menu } from './Overlay';
+import { Popover } from './Overlay';
+import { presetRange, type DatePreset } from './calendar';
 
-/** Two `<input type=date>` (yyyy-MM-dd values, interpret in Cairo with `cairoDayToIso`). */
-export function DateRange({ from, to, onChange, className }: { from: string; to: string; onChange: (v: { from: string; to: string }) => void; className?: string }) {
+const PRESETS: DatePreset[] = ['today', 'last7', 'last30', 'thisMonth', 'lastMonth', 'thisYear'];
+
+/** Two date fields (yyyy-MM-dd values, interpret in Cairo with `cairoDayToIso`) plus optional quick ranges. */
+export function DateRange({
+  from,
+  to,
+  onChange,
+  className,
+  presets = true,
+}: {
+  from: string;
+  to: string;
+  onChange: (v: { from: string; to: string }) => void;
+  className?: string;
+  presets?: boolean;
+}) {
   const { t } = useT();
   return (
     <div className={cn('flex items-center gap-2', className)}>
-      <Input type="date" aria-label={t('common.from')} value={from} max={to || undefined} onChange={(e) => onChange({ from: e.target.value, to })} />
-      <span className="text-slate-400">-</span>
-      <Input type="date" aria-label={t('common.to')} value={to} min={from || undefined} onChange={(e) => onChange({ from, to: e.target.value })} />
+      <DateField value={from} max={to || undefined} placeholder={t('common.from')} onChange={(v) => onChange({ from: v, to })} testId="date-from" />
+      <Icon as={ArrowRight} mirror size={16} className="text-ink-3" />
+      <DateField value={to} min={from || undefined} placeholder={t('common.to')} onChange={(v) => onChange({ from, to: v })} testId="date-to" />
+      {presets && (
+        <Menu
+          align="end"
+          testId="date-presets"
+          trigger={
+            <Button variant="ghost" icon={<Icon as={CalendarRange} size={18} />} aria-label={t('ui.date.preset.thisMonth')} data-testid="date-presets-trigger" />
+          }
+          items={PRESETS.map((p) => ({
+            key: p,
+            label: t('ui.date.preset.' + p),
+            onSelect: () => onChange(presetRange(p, todayCairo())),
+            testId: 'date-preset-' + p,
+          }))}
+        />
+      )}
     </div>
   );
 }
@@ -61,19 +98,47 @@ export function LookupSelect({ entity, value, onChange, placeholder, disabled, i
   );
 }
 
-/** Checkbox list fed by `GET /lookups/:entity` (multi-select). */
+/** Multi-select fed by `GET /lookups/:entity`: removable badges plus an "add" popover with search and a checkbox list. */
 export function LookupMultiSelect({ entity, value, onChange, className }: { entity: string; value: string[]; onChange: (ids: string[]) => void; className?: string }) {
+  const { t } = useT();
   const { data } = useLookup(entity);
+  const [q, setQ] = useState('');
+  const items = data ?? [];
+  const selected = value.map((id) => items.find((i) => i.id === id)).filter((i): i is LookupItem => Boolean(i));
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? items.filter((i) => `${i.code ?? ''} ${i.label}`.toLowerCase().includes(needle)) : items;
   return (
-    <div className={cn('grid gap-1.5 rounded-md border border-slate-200 p-2 sm:grid-cols-2', className)}>
-      {(data ?? []).map((i) => (
-        <Checkbox
-          key={i.id}
-          label={i.label}
-          checked={value.includes(i.id)}
-          onChange={(c) => onChange(c ? [...value, i.id] : value.filter((x) => x !== i.id))}
-        />
+    <div className={cn('flex flex-wrap items-center gap-2', className)} data-testid="lookup-multi">
+      {selected.map((i) => (
+        <Badge key={i.id} tone="navy">
+          {i.label}
+          <button type="button" aria-label={t('common.close')} onClick={() => onChange(value.filter((x) => x !== i.id))} className="-me-1 rounded-sm p-0.5 hover:bg-primary/10">
+            <Icon as={X} size={14} />
+          </button>
+        </Badge>
       ))}
+      <Popover
+        align="start"
+        className="w-72"
+        testId="lookup-multi-popover"
+        trigger={
+          <Button variant="secondary" size="sm" icon={<Icon as={Plus} size={16} />} data-testid="lookup-multi-add">
+            {t('ui.more')}
+          </Button>
+        }
+      >
+        <SearchInput value={q} onChange={setQ} />
+        <div className="mt-2 max-h-[260px] space-y-1.5 overflow-y-auto">
+          {shown.map((i) => (
+            <Checkbox
+              key={i.id}
+              label={i.label}
+              checked={value.includes(i.id)}
+              onChange={(c) => onChange(c ? [...value, i.id] : value.filter((x) => x !== i.id))}
+            />
+          ))}
+        </div>
+      </Popover>
     </div>
   );
 }
@@ -109,14 +174,14 @@ export function FileDrop({ accept, onFile, hint, label, disabled }: FileDropProp
         if (f && !disabled) onFile(f);
       }}
       className={cn(
-        'flex cursor-pointer flex-col items-center gap-1 rounded-lg border-2 border-dashed px-4 py-6 text-center text-sm',
-        over ? 'border-brand-600 bg-brand-50' : 'border-slate-300 bg-slate-50 hover:bg-slate-100',
+        'flex cursor-pointer flex-col items-center gap-1 rounded-lg border border-dashed px-4 py-6 text-center text-sm',
+        over ? 'border-primary bg-primary-tint' : 'border-line bg-surface-2/50 hover:border-ink-3',
         disabled && 'cursor-not-allowed opacity-50',
       )}
     >
-      <Upload className="h-6 w-6 text-slate-400" />
-      <span className="font-semibold text-slate-700">{label ?? t('import.chooseFile')}</span>
-      {hint && <span className="text-xs text-slate-500">{hint}</span>}
+      <Icon as={Upload} size={24} className="text-ink-3" />
+      <span className="font-semibold text-ink">{label ?? t('import.chooseFile')}</span>
+      {hint && <span className="text-xs text-ink-3">{hint}</span>}
       <input
         ref={ref}
         type="file"
