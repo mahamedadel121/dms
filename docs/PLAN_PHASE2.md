@@ -1,5 +1,7 @@
 # DMS — Phase 2 plan (follow-up gaps)
 
+> **SUPERSEDED — DO NOT EXECUTE.** This file (commit `f22dcbb`) was not commissioned by the owner and conflicts with the approved plan (no redesign, no migration). The only Phase 2 source of truth is **`docs/plan-v2/PLAN_V2.md`** + **`docs/plan-v2/DESIGN_SPEC.md`**. Kept for reference only.
+
 Written 2026-11-10 against the code as built (commit `8c067c2`). Source of truth for Phase 2 execution. `docs/PLAN.md` conventions (§4, §10–§14) stay in force unless this file says otherwise.
 
 ## 0. Hard rules for every agent in Phase 2 (read first)

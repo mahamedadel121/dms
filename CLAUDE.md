@@ -6,6 +6,12 @@
 - No Docker, Redis or MinIO on this machine. `docker-compose.yml`/`Dockerfile` are files only, never run.
 - Reply to the owner in Egyptian Arabic; code, prompts, comments and docs in English.
 
+## Phase 2 (approved plan, not yet started as of 2026-11-10)
+- **The ONLY Phase 2 plan is `docs/plan-v2/`**: `PLAN_V2.md` (gaps, tests, work packages, briefs), `DESIGN_SPEC.md` (full "Majlis" redesign), `TESTING_GUIDE.md`, `OWNER_DECISIONS.md`. `docs/PLAN_PHASE2.md` is SUPERSEDED — never execute it.
+- When the owner says "start Phase 2" / "ابدأ التنفيذ": the main session only orchestrates. Follow `PLAN_V2.md` §8: run the §4.1 install step yourself → launch F1/F2/F3 → gate G0 (`pnpm -r typecheck`, `pnpm lint`) → launch W1–W9, A1–A6, T1, H1 in parallel with the §8.4 preamble + §8.5 brief each → Z integration (§9). Models per §8.2 (Sonnet; Haiku for H1). Fable is for planning/advice only — do not use it for implementation.
+- **Tests are WRITTEN, never RUN on this machine** (the developer runs them per `TESTING_GUIDE.md`). Agents may only run `tsc --noEmit` and lint. No vitest, playwright, `next build`, servers, `pnpm demo`, migrate or seed.
+- Owner decisions in `OWNER_DECISIONS.md` use Fable's defaults unless the owner says otherwise at kickoff. If time is short, apply the cut list in `PLAN_V2.md` §10.
+
 ## Layout and conventions
 - pnpm monorepo: `packages/{shared,db,core}`, `apps/{api,web,bot,worker}`, `e2e`. No build step for packages: `main/exports` point at `src/*.ts`.
 - `@dms/core` = framework-free domain logic, subpath imports only (`@dms/core/engine`), no root index. Web imports only `@dms/shared`.
