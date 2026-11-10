@@ -36,3 +36,4 @@
 P2-F3, apps/api/src/platform/auth.service.ts: Me now requires telegramLinked: boolean (A1 must add it in /auth/me; typecheck fails there until then)
 P2-W7, apps/web/src/components/ui/Fields.tsx: SearchInput does not forward data-testid; CrudPage wraps it in a div[data-testid="crud-search"] (e2e should target the input inside).
 P2-W3, features/requests/timelineModel.ts: DESIGN_SPEC names event type REQ_AT_STEP but the real arrival event is STEP_ACTIVATED; collapseEvents treats both as arrival.
+P2-W9, apps/web/src/components/ui/DataTable.tsx: rows expose data-row-key only; rt list uses rowKey=code so e2e can select [data-row-key=CODE] (spec asked data-code)
