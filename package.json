@@ -11,6 +11,7 @@
     "db:seed": "pnpm --filter @dms/db seed && pnpm --filter @dms/core seed:demo",
     "db:generate": "pnpm --filter @dms/db generate",
     "dev": "tsx scripts/dev.ts",
+    "demo": "tsx scripts/demo.ts",
     "lint": "eslint .",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
