@@ -164,6 +164,33 @@ describe('submit validation and idempotency', () => {
     expect(await prisma.request.count({ where: { clientKey: 'k-1' } })).toBe(1);
   });
 
+  it('header-only type (hasLines=false) submits with no lines and total 0; lines are rejected', async () => {
+    const d = await driver(prisma);
+    const before = await prisma.requestType.findUniqueOrThrow({ where: { code: 'DRIVER_EXPENSE' } });
+    const tolls = await prisma.lineCategory.findFirstOrThrow({ where: { code: 'TOLLS' } });
+    const att = await addAttachment(prisma, d.id);
+    const a = { type: 'SUBMITTER' as const, submitterId: d.id };
+    const base = { requestTypeCode: 'DRIVER_EXPENSE', channel: 'TELEGRAM' as const, submitterId: d.id, headerValues: {} };
+    // the type is flipped temporarily (module off: the expense module needs a vehicle and lines); restored below
+    await prisma.requestType.update({ where: { id: before.id }, data: { hasLines: false, moduleKey: null } });
+    try {
+      expect(await code(submitRequest(prisma, { ...base, lines: [{ categoryId: tolls.id, amount: '5', attachmentIds: [att.id] }] }, a))).toBe('VALIDATION');
+      const r = await submitRequest(prisma, { ...base, clientKey: 'k-header-only', lines: [] }, a);
+      const row = await prisma.request.findUniqueOrThrow({ where: { id: r.id } });
+      expect(row.lineCount).toBe(0);
+      expect(row.totalOriginal.toString()).toBe('0');
+      expect(row.totalFinal.toString()).toBe('0');
+      expect(await prisma.requestLine.count({ where: { requestId: r.id } })).toBe(0);
+      const detail = await getRequestDetail(prisma, r.id, await userOf(prisma, 'admin'));
+      expect(detail.lines).toEqual([]);
+      expect(Number((detail as unknown as { totals: { final: string } }).totals.final)).toBe(0);
+    } finally {
+      await prisma.requestType.update({ where: { id: before.id }, data: { hasLines: before.hasLines, moduleKey: before.moduleKey } });
+    }
+    // with lines required again, an empty submit is refused
+    expect(await code(submitRequest(prisma, { ...base, headerValues: { odometer: 5 }, lines: [] }, a))).toBe('VALIDATION');
+  });
+
   it('diesel liters give quantity and unit price; snapshots written; odometer stored', async () => {
     const r = await submitExpense(prisma, { lines: [{ cat: 'DIESEL', amount: '200', extra: { liters: '20' } }], odometer: 2222 });
     const line = await prisma.requestLine.findFirstOrThrow({ where: { requestId: r.id }, include: { expense: true } });

@@ -72,7 +72,12 @@ Only `tsc --noEmit` and `eslint` were run (both clean at the integration commit;
 | CrudPage, import dialog, master pages (W7) | Done | `components/crud` tests, e2e |
 | Admin: users, roles matrix, delegations, audit, settings, signatures (W8) | Done | `features/admin/*.test.ts` |
 | Request types UI (W9) | Done | `features/request-types` tests, e2e |
-| Cut (PLAN_V2 section 10): C1 command palette, C2 workflow route preview card, C3 audit diff viewer (raw JSON shown; `features/admin/diff.ts` exists unused), C4 roles matrix mobile accordion, C5 density and Arabic-Indic numerals toggle UI (formatter support stays; the numerals e2e test was dropped) | Not built | follow-up run |
+| C1 command palette, density and Arabic-Indic numerals preferences (P2-R1) | Implemented (tests written, not run) | `apps/web/src/features/**` model tests |
+| C2 workflow route preview card (P2-R2) | Implemented (tests written, not run) | `features/workflows` tests |
+| C3 audit diff viewer (P2-R3; `features/admin/diff.ts` now used) | Implemented (tests written, not run) | `features/admin/*.test.ts` |
+| C4 roles matrix mobile accordion (P2-R3) | Implemented (tests written, not run) | `features/admin/*.test.ts`, e2e |
+| C5 density and numerals toggle UI (P2-R1) | Implemented (tests written, not run) | `apps/web/src/lib/*.test.ts` |
+| D1 web request submission at `/requests/new` (P2-R4, P2-R5), including header-only request types (`hasLines=false`: no lines, total 0, PDF and detail page hide the lines table and totals) | Implemented (tests written, not run) | `features/request-submit/model.test.ts`, `apps/api/test/workflow/web-submit.test.ts`, `packages/core/src/engine/engine.test.ts` |
 
 ### Section B: functional gaps
 | Item | Status | Proven by |

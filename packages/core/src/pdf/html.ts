@@ -123,12 +123,12 @@ ${m.logoDataUri ? `<img class="logo" alt="" src="${m.logoDataUri}"/>` : '<div cl
 <div style="width:140px"></div>
 </div>
 <table class="hdr">${hdrRows.join('')}</table>
-<table class="lines"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>
-<div class="totals">
+${m.lines.length ? `<table class="lines"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>` : ''}
+${m.lines.length ? `<div class="totals">
 ${m.showOriginalTotal ? `<div class="row"><span>الإجمالي الأصلي</span><span class="num">${escapeHtml(fmtMoney(m.totalOriginal))} ${escapeHtml(m.currency)}</span></div>` : ''}
 <div class="row grand"><span>الإجمالي</span><span class="num total-digits">${escapeHtml(fmtMoney(m.totalFinal))} ${escapeHtml(m.currency)}</span></div>
 ${m.amountWords ? `<div class="row"><span class="words total-words">${escapeHtml(m.amountWords)}</span></div>` : ''}
-</div>
+</div>` : ''}
 ${m.footerNoteAr ? `<div class="footer-note">${escapeHtml(m.footerNoteAr)}</div>` : ''}
 <div class="sigs" style="grid-template-columns:repeat(${perRow},1fr)">${m.signatures.map(sigHtml).join('')}</div>
 </div></body></html>`;

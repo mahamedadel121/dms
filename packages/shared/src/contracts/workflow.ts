@@ -285,7 +285,7 @@ export const submitRequestBodySchema = z.object({
         note: z.string().optional(),
       }),
     )
-    .min(1),
+    .default([]), // header-only request types (hasLines=false) send none; the engine enforces >=1 when the type has lines
 });
 export type SubmitRequestBody = z.infer<typeof submitRequestBodySchema>;
 

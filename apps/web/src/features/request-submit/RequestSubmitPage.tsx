@@ -88,7 +88,7 @@ function SubmitForm({ type, onChangeType }: { type: RequestTypeDto; onChangeType
 
   const seq = useRef(1);
   const clientKey = useRef(typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `web-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  const [draft, setDraft] = useState<SubmitDraft>({ header: {}, lines: [newLine('l1')] });
+  const [draft, setDraft] = useState<SubmitDraft>({ header: {}, lines: type.hasLines ? [newLine('l1')] : [] });
   const [issues, setIssues] = useState<IssueMap>({});
   const [step, setStep] = useState<Step>('form');
   const [busy, setBusy] = useState(false);
@@ -178,6 +178,8 @@ function SubmitForm({ type, onChangeType }: { type: RequestTypeDto; onChangeType
             </Card>
           )}
 
+          {type.hasLines && (
+            <>
           <h2 className="text-lg font-semibold text-ink">{t('requests.submit.lines.title')}</h2>
           {issues.lines && <p role="alert" className="text-sm font-medium text-danger">{t('requests.submit.err.noLines')}</p>}
           {draft.lines.map((l, i) => (
@@ -210,6 +212,8 @@ function SubmitForm({ type, onChangeType }: { type: RequestTypeDto; onChangeType
               <Money value={total} size="lg" />
             </div>
           </Card>
+            </>
+          )}
           <div className="flex justify-end">
             <Button data-testid="submit-next" onClick={review}>
               {t('requests.submit.next')}
@@ -227,7 +231,7 @@ function SubmitForm({ type, onChangeType }: { type: RequestTypeDto; onChangeType
               ))}
             </DL>
           </Card>
-          {draft.lines.map((l, i) => {
+          {type.hasLines && draft.lines.map((l, i) => {
             const c = catById.get(l.categoryId);
             return (
               <Card key={l.uid} title={`${t('requests.submit.line.n', { n: i + 1 })} - ${c ? name(c) : ''}`} actions={<Money value={l.amount ? draftTotal([l]) : '0'} />}>
@@ -244,12 +248,14 @@ function SubmitForm({ type, onChangeType }: { type: RequestTypeDto; onChangeType
               </Card>
             );
           })}
+          {type.hasLines && (
           <Card accent="rule">
             <div className="flex items-center justify-between gap-3">
               <span className="font-semibold text-ink">{t('requests.submit.total')}</span>
               <Money value={total} size="lg" />
             </div>
           </Card>
+          )}
           <div className="flex justify-between gap-2">
             <Button variant="secondary" disabled={busy} onClick={() => setStep('form')}>
               {t('requests.submit.edit')}

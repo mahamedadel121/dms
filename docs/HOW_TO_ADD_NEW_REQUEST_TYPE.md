@@ -27,7 +27,7 @@ Rule of thumb: if the request has the shape of a driver expense (a list of amoun
 4. Categories: press **Add category**. In the drawer set code, names, GL account when relevant, minimum and maximum attachments, allowed file types, extra fields and the quantity field.
 5. Tab **Attachments**: review attachment limits and file types of every category in one grid.
 6. Tab **Templates**: shows the templates of this type and a shortcut to create one.
-7. Press **Save**. The type is usable through `POST /api/v1/requests` immediately. Deactivate a type or category instead of deleting it.
+7. Press **Save**. The type is usable immediately: staff with `requests.create` submit it from the web at **`/requests/new`** (the type must have the WEB channel), or through `POST /api/v1/requests`. A type with **has lines** switched off (for example an HR leave request) is a header-only type: the form shows only the header fields, no lines or categories are needed, and the request total is 0. A type with lines needs at least one line. Deactivate a type or category instead of deleting it.
 
 ## 4. Build the approval route (web)
 

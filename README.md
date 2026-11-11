@@ -134,7 +134,7 @@ Open **http://127.0.0.1:3010**. The page is a phone-style chat that talks to the
 
 ## Phase 2 redesign
 
-The web app was redesigned in one direction, "Majlis": ivory paper, navy ink, brass rule, Naskh display type and an approval seal, with light and dark themes, Arabic RTL first, English, desktop and mobile. Phase 2 also added request-type and template management screens, S/4HANA duplicate lookup and a Cash Journal adapter, an S3 storage driver, Prometheus `/metrics`, SMTP e-mail, Telegram link/relink and load tooling. It was implemented without running any test: follow `docs/plan-v2/TESTING_GUIDE.md` for the first run.
+The web app was redesigned in one direction, "Majlis": ivory paper, navy ink, brass rule, Naskh display type and an approval seal, with light and dark themes, Arabic RTL first, English, desktop and mobile. Phase 2 also added request-type and template management screens, S/4HANA duplicate lookup and a Cash Journal adapter, an S3 storage driver, Prometheus `/metrics`, SMTP e-mail, Telegram link/relink and load tooling. Staff with `requests.create` can also submit a request of any WEB-enabled type from the web app at `/requests/new` (header fields, lines and attachments; types without lines, such as an HR leave request, are submitted with header fields only). It was implemented without running any test: follow `docs/plan-v2/TESTING_GUIDE.md` for the first run.
 
 ## Tests and CI
 

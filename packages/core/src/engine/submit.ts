@@ -86,6 +86,8 @@ async function submitInTx(
     if (!submitter || !submitter.isActive) throw new DomainError('VALIDATION', 'Submitter not found or inactive');
   }
   if (type.hasLines && input.lines.length === 0) throw new DomainError('VALIDATION', 'At least one line is required');
+  // header-only type (hasLines=false): no lines at all; the total is "0.00" (documented limitation)
+  if (!type.hasLines && input.lines.length > 0) throw new DomainError('VALIDATION', `Request type ${type.code} does not accept lines`);
 
   // header fields
   const headerErrors = validateFieldValues(parseFields(type.headerFields), input.headerValues ?? {}, 'header field');

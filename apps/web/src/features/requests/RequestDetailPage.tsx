@@ -297,6 +297,7 @@ export function RequestDetailPage({ id }: { id: string }) {
             {md ? <RouteStepper steps={d.steps} /> : <RouteStepper steps={d.steps} compact />}
           </Card>
 
+          {d.lines.length > 0 && (
           <Card title={t('requests.lines.title', { n: d.lines.length })} padded={false}>
             {d.lines.map((l) => (
               <LineCard
@@ -312,6 +313,7 @@ export function RequestDetailPage({ id }: { id: string }) {
               />
             ))}
           </Card>
+          )}
 
           <Card title={t('requests.timeline.title')}>
             <Timeline events={d.events} corrections={d.corrections} />

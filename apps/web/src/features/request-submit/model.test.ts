@@ -14,9 +14,21 @@ const type = (over: Partial<RequestTypeDto> = {}): RequestTypeDto => ({
 const file = { id: 'a1', name: 'a.png', mimeType: 'image/png' };
 
 describe('request-submit model', () => {
-  it('webTypes keeps active WEB types with lines', () => {
+  it('webTypes keeps active WEB types, header-only ones included', () => {
     const r = webTypes([type(), type({ code: 'X', channels: ['TELEGRAM'] }), type({ code: 'Y', isActive: false }), type({ code: 'Z', hasLines: false })]);
-    expect(r.map((x) => x.code)).toEqual(['HR_LEAVE']);
+    expect(r.map((x) => x.code)).toEqual(['HR_LEAVE', 'Z']);
+  });
+
+  it('header-only type: no lines needed and none sent', () => {
+    const t0 = type({ hasLines: false });
+    const draft: SubmitDraft = { header: { reason: 'x' }, lines: [newLine('u1', 'c1')] };
+    expect(validateDraft(t0, [], { header: { reason: 'x' }, lines: [] })).toEqual({});
+    expect(validateDraft(t0, [], draft)).toEqual({});
+    expect(validateDraft(t0, [], { header: {}, lines: [] }).lines).toBeUndefined();
+    expect(validateDraft(t0, [], { header: {}, lines: [] })['h.reason'].code).toBe('required');
+    const body = buildCreateBody(t0, [], draft, 'k1');
+    expect(body.lines).toEqual([]);
+    expect(body.requestTypeCode).toBe('HR_LEAVE');
   });
 
   it('validateFields mirrors the engine rules', () => {

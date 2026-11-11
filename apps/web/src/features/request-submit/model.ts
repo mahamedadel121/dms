@@ -38,9 +38,9 @@ export type IssueMap = Record<string, Issue>;
 export const headerKey = (k: string) => `h.${k}`;
 export const lineKey = (i: number, k: string) => `l${i}.${k}`;
 
-/** Types the web form can offer: active, WEB channel, with lines. */
+/** Types the web form can offer: active, WEB channel, (with or without lines). */
 export function webTypes(types: RequestTypeDto[]): RequestTypeDto[] {
-  return types.filter((t) => t.isActive && t.hasLines && t.channels.includes('WEB'));
+  return types.filter((t) => t.isActive && t.channels.includes('WEB'));
 }
 
 export const sortedFields = (fields: FieldDefinition[]): FieldDefinition[] => [...fields].sort((a, b) => a.order - b.order);
@@ -97,8 +97,9 @@ export function checkFile(cat: LineCategoryDto | undefined, currentCount: number
   return { ok: true };
 }
 
-export function validateDraft(type: Pick<RequestTypeDto, 'headerFields'>, cats: LineCategoryDto[], draft: SubmitDraft): IssueMap {
+export function validateDraft(type: Pick<RequestTypeDto, 'headerFields' | 'hasLines'>, cats: LineCategoryDto[], draft: SubmitDraft): IssueMap {
   const out: IssueMap = { ...validateFields(type.headerFields, draft.header, headerKey) };
+  if (!type.hasLines) return out;
   if (draft.lines.length === 0) out.lines = { code: 'noLines' };
   const byId = new Map(cats.map((c) => [c.id, c]));
   draft.lines.forEach((l, i) => {
@@ -138,13 +139,13 @@ export function normaliseHeader(fields: FieldDefinition[], header: Record<string
   return out;
 }
 
-export function buildCreateBody(type: Pick<RequestTypeDto, 'code' | 'headerFields'>, cats: LineCategoryDto[], draft: SubmitDraft, clientKey: string): SubmitRequestBody {
+export function buildCreateBody(type: Pick<RequestTypeDto, 'code' | 'headerFields' | 'hasLines'>, cats: LineCategoryDto[], draft: SubmitDraft, clientKey: string): SubmitRequestBody {
   const byId = new Map(cats.map((c) => [c.id, c]));
   return {
     requestTypeCode: type.code,
     clientKey,
     headerValues: normaliseHeader(type.headerFields, draft.header),
-    lines: draft.lines.map((l) => {
+    lines: (type.hasLines ? draft.lines : []).map((l) => {
       const cat = byId.get(l.categoryId);
       const extra = clean(l.extra);
       for (const f of cat?.extraFields ?? []) if (f.type === 'number' && extra[f.key]) extra[f.key] = normalizeDigits(extra[f.key]);

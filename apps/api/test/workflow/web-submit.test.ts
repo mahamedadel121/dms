@@ -13,20 +13,23 @@ let catId = '';
 
 const field = (over: Record<string, unknown>) => ({ key: 'x', type: 'text', labelAr: 'حقل', labelEn: 'Field', required: false, order: 1, ...over });
 
-async function makeType(code: string, prefix: string, channels: string[]) {
+async function makeType(code: string, prefix: string, channels: string[], hasLines = true) {
   const r = await t.http.post(api('/request-types')).set(admin).send({
     code,
     numberPrefix: prefix,
     nameAr: 'إجازة',
     nameEn: 'Leave',
     channels,
+    hasLines,
     headerFields: [field({ key: 'reason', required: true }), field({ key: 'days', type: 'number', min: 1, max: 30, order: 2 })],
   });
   expect(r.status).toBe(201);
-  const cat = await t.http
-    .post(api(`/request-types/${r.body.id}/line-categories`))
-    .set(admin)
-    .send({ code: 'ITEM', nameAr: 'بند', nameEn: 'Item', minAttachments: 1, maxAttachments: 2 });
+  const cat = hasLines
+    ? await t.http
+        .post(api(`/request-types/${r.body.id}/line-categories`))
+        .set(admin)
+        .send({ code: 'ITEM', nameAr: 'بند', nameEn: 'Item', minAttachments: 1, maxAttachments: 2 })
+    : { status: 201, body: { id: '' } };
   expect(cat.status).toBe(201);
   const role = await t.prisma.role.findFirstOrThrow({ where: { isActive: true } });
   const ver = await t.prisma.workflowVersion.findFirstOrThrow({ where: { workflowId: r.body.workflowId, status: 'DRAFT' } });
@@ -52,6 +55,7 @@ beforeAll(async () => {
   nobody = await t.auth('nobody');
   catId = (await makeType('HR_LEAVE', 'HL', ['WEB'])).categoryId;
   await makeType('HR_TG_ONLY', 'HT', ['TELEGRAM']);
+  await makeType('HR_NOTE', 'HN', ['WEB'], false);
 });
 afterAll(async () => {
   await t?.close();
@@ -120,5 +124,29 @@ describe('web submission of a custom request type', () => {
       .set(other)
       .send({ requestTypeCode: 'HR_LEAVE', clientKey: 'web-submit-1', headerValues: { reason: 'x' }, lines: [{ categoryId: catId, amount: '10', attachmentIds: [attachmentId] }] });
     expect(r.status).toBe(409);
+  });
+
+  it('header-only type submits with no lines', async () => {
+    const r = await t.http.post(api('/requests')).set(admin).send({ requestTypeCode: 'HR_NOTE', headerValues: { reason: 'Sick', days: '2' } });
+    expect(r.status).toBe(201);
+    const d = await t.http.get(api(`/requests/${r.body.id}`)).set(admin);
+    expect(d.status).toBe(200);
+    expect(d.body.lines).toEqual([]);
+    expect(Number(d.body.totals.final)).toBe(0);
+    expect(d.body.headerValues.reason).toBe('Sick');
+  });
+
+  it('header-only type rejects lines', async () => {
+    const attachmentId = await upload();
+    const r = await t.http
+      .post(api('/requests'))
+      .set(admin)
+      .send({ requestTypeCode: 'HR_NOTE', headerValues: { reason: 'x' }, lines: [{ categoryId: catId, amount: '10', attachmentIds: [attachmentId] }] });
+    expect(r.status).toBe(400);
+  });
+
+  it('a type with lines still needs at least one', async () => {
+    const r = await t.http.post(api('/requests')).set(admin).send({ requestTypeCode: 'HR_LEAVE', headerValues: { reason: 'x' } });
+    expect(r.status).toBe(400);
   });
 });
