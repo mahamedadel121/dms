@@ -1,15 +1,24 @@
 // Local "Driver simulator": a mobile-looking RTL chat page served by the bot app itself (BOT_SIMULATOR=1).
 // It feeds fake Telegram updates through the SAME bot instance (createBot) and the SAME core/DB, so requests
-// created here are real requests that approvers see. No Telegram token and no network access are used.
+// created here are real requests that approvers see. Simulated drivers never touch Telegram; only queued
+// notifications for real (non-simulated) Telegram accounts are forwarded through the Bot API when BOT_TOKEN is set.
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
+import { Api } from 'grammy';
 import { createPrisma, loadEnv, type PrismaClient } from '@dms/db';
+import { getConfig } from '@dms/core/config';
+import { runDueJobs } from '@dms/core/jobs';
 import type { StorageAdapter } from '@dms/core/storage';
 import { getStorage } from '@dms/core/storage';
+import { createTelegramSendHandler, type TelegramApi } from '../jobs';
 import { createBotHarness, type HarnessUser } from '../testing/harness';
 
 const SIM_TG_BASE = 8_000_000; // simulated telegram user id = base + driver number (never a real id)
+const isSimulatedChat = (chatId: number | string): boolean => {
+  const n = Number(chatId);
+  return n > SIM_TG_BASE && n < SIM_TG_BASE + 1_000_000;
+};
 const MAX_UPLOAD = 16 * 1024 * 1024;
 
 type LogEntry = { kind: 'user'; text: string; at: number } | { kind: 'bot'; id: number };
@@ -97,8 +106,20 @@ export async function startSimulator(
 
   // Telegram notifications to drivers (e.g. correction requests, vehicle-change decisions) are delivered here
   // exactly as the real bot process would deliver them, through the telegram job queue.
+  // The simulator and the real bot drain the SAME queue. Route each message by its chat: simulated drivers get
+  // it on this page; real Telegram accounts get it through the real Bot API (when BOT_TOKEN is set), so a
+  // notification claimed here is never lost to a real user.
+  const token = getConfig().BOT_TOKEN;
+  const realApi = token ? new Api(token) : null;
+  const routedApi: TelegramApi = {
+    sendMessage: (chatId, text, other) =>
+      isSimulatedChat(chatId) || !realApi
+        ? harness.bot.api.sendMessage(chatId as never, text, other as never)
+        : realApi.sendMessage(chatId, text, other as never),
+  };
+  const sendHandlers = { 'telegram.send': createTelegramSendHandler(routedApi) };
   const pump = setInterval(() => {
-    harness.flushTelegramJobs().catch(() => undefined);
+    runDueJobs({ prisma, queues: ['telegram'], handlers: sendHandlers }).catch(() => undefined);
   }, 1500);
   pump.unref();
 
