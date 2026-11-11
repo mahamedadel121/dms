@@ -43,12 +43,18 @@ async function up(): Promise<void> {
   }
   if (!isReady()) {
     // pg_ctl may stay alive on Windows (restricted-token wrapper): never wait for it, poll readiness instead.
-    const child = spawn(pgBin('pg_ctl'), ['-D', data, '-o', `-p ${PG_PORT}`, '-l', join(data, 'server.log'), 'start'], {
-      stdio: 'ignore',
-      detached: true,
-      windowsHide: true,
-    });
-    child.unref();
+    const pgArgs = ['-D', data, '-o', `-p ${PG_PORT}`, '-l', join(data, 'server.log'), 'start'];
+    if (process.platform === 'win32') {
+      // Start pg_ctl in its own hidden console via Start-Process. A server that shares a console with the
+      // caller is killed by any Ctrl+C sent to that console (seen as exit 0xC000013A in server.log).
+      // PowerShell returns as soon as pg_ctl is launched; a detached PowerShell does not launch it reliably.
+      const q = (s: string) => `'${s.replace(/'/g, "''")}'`;
+      const argList = pgArgs.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(' ');
+      const ps = `Start-Process -FilePath ${q(pgBin('pg_ctl'))} -ArgumentList ${q(argList)} -WindowStyle Hidden`;
+      spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], { stdio: 'ignore', windowsHide: true });
+    } else {
+      spawn(pgBin('pg_ctl'), pgArgs, { stdio: 'ignore', detached: true }).unref();
+    }
     const deadline = Date.now() + 60_000;
     while (!isReady()) {
       if (Date.now() > deadline) throw new Error('postgres did not become ready; see .pgdata/server.log');
