@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, ChevronDown, Download, FileText, Lock, MessageSquareWarning } from 'lucide-react';
-import { api, errorMessage } from '@/lib/api';
+import { api, errorMessage, openBlobInNewTab } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { formatCount, formatDay, formatTime, ltrIsolate } from '@/lib/format';
 import { useMediaQuery } from '@/lib/useMediaQuery';
@@ -110,18 +110,18 @@ export function RequestDetailPage({ id }: { id: string }) {
   const openPdf = async (download: boolean) => {
     setPdfBusy(true);
     try {
+      if (!download) {
+        await openBlobInNewTab(async () => (await api.blob(`/requests/${id}/pdf`)).blob, `${d.number}.pdf`);
+        return;
+      }
       const { blob, fileName } = await api.blob(`/requests/${id}/pdf`);
       const url = URL.createObjectURL(blob);
-      if (download) {
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = fileName.endsWith('.pdf') ? fileName : `${d.number}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      } else {
-        window.open(url, '_blank', 'noopener');
-      }
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName.endsWith('.pdf') ? fileName : `${d.number}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (e) {
       toast.error(e);

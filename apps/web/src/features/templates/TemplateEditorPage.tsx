@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, ArrowUp, ChevronDown, FileText, Plus, RefreshCw, Save, Send } from 'lucide-react';
 import { templateConfigSchema, type TemplateConfig } from '@dms/shared';
-import { API_BASE, api, errorMessage, tokens } from '@/lib/api';
+import { API_BASE, api, errorMessage, openBlobInNewTab, tokens } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { Banner, Button, Card, Checkbox, Code, DateText, ErrorBlock, FileDrop, FormField, Icon, IconButton, Input, LoadingBlock, Page, PageHeader, SegmentedControl, Select, StatusChip, Switch, useToast } from '@/components/ui';
 import { useTr } from '../common/useTr';
@@ -152,10 +152,10 @@ export function TemplateEditorPage({ id }: { id: string }) {
 
   const openPdf = async () => {
     try {
-      const res = await postRaw(`/template-versions/${versionId}/preview?format=pdf`, { config: cfg });
-      const url = URL.createObjectURL(await res.blob());
-      window.open(url, '_blank', 'noopener');
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      await openBlobInNewTab(
+        async () => (await postRaw(`/template-versions/${versionId}/preview?format=pdf`, { config: cfg })).blob(),
+        'template-preview.pdf',
+      );
     } catch (e) {
       toast.error(e);
     }

@@ -184,6 +184,34 @@ export const api = {
   anonymousPost: <T = unknown>(path: string, body?: unknown) => json<T>('POST', path, { body, anonymous: true }),
 };
 
+/**
+ * Open a binary (e.g. a PDF) fetched with auth in a new tab.
+ * The tab is opened synchronously in the click handler (keeps user activation, avoids popup blockers) and
+ * WITHOUT `noopener`: Chromium shows an empty tab for blob: URLs opened with `noopener`.
+ * If the browser blocks the tab, the file is downloaded instead.
+ */
+export async function openBlobInNewTab(load: () => Promise<Blob>, fallbackName: string): Promise<void> {
+  const win = typeof window !== 'undefined' ? window.open('', '_blank') : null;
+  try {
+    const blob = await load();
+    const url = URL.createObjectURL(blob);
+    if (win) {
+      win.location.href = url;
+    } else {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fallbackName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (e) {
+    win?.close();
+    throw e;
+  }
+}
+
 export function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message;
   return String(e);
