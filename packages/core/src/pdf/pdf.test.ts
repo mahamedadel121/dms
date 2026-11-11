@@ -2,6 +2,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import sharp from 'sharp';
 import { setupTestDb } from '@dms/db/testing';
 import type { PrismaClient } from '@prisma/client';
 import { createLocalStorage, type StorageAdapter } from '../storage';
@@ -101,6 +102,49 @@ describe('document model + HTML', () => {
     const html = renderDocumentHtml(await buildDocumentModel(prisma, f.requestId, { storage, templateConfig: cfg as never }));
     expect(html).not.toContain('<script>alert');
     expect(html).toContain('&lt;script&gt;');
+  });
+});
+
+describe('receipt images section', () => {
+  const baseCfg = async () => {
+    const tv = await prisma.templateVersion.findFirstOrThrow({ where: { status: 'ACTIVE' } });
+    return tv.config as Record<string, unknown>;
+  };
+  const putImage = async (requestId: string, lineId: string, key: string, extra: { supersededById?: string; isCurrent?: boolean } = {}) => {
+    const png = await sharp({ create: { width: 2400, height: 1200, channels: 3, background: { r: 200, g: 40, b: 40 } } }).png().toBuffer();
+    await storage.put(key, png, { contentType: 'image/png' });
+    return prisma.attachment.create({
+      data: { requestId, lineId, storageKey: key, mimeType: 'image/png', sizeBytes: png.length, sha256: sha256Hex(png) + key, ...extra },
+    });
+  };
+
+  it('includeReceipts true: one img per current image attachment, none for superseded ones', async () => {
+    const f = await createRequestFixture(prisma, { scenario: 'neither', storage });
+    const lines = await prisma.requestLine.findMany({ where: { requestId: f.requestId }, orderBy: { lineNo: 'asc' } });
+    const old = await putImage(f.requestId, lines[0]!.id, `rc/${f.requestId}/old.png`);
+    const cur = await putImage(f.requestId, lines[0]!.id, `rc/${f.requestId}/cur.png`);
+    await prisma.attachment.update({ where: { id: old.id }, data: { isCurrent: false, supersededById: cur.id, supersededAt: new Date() } });
+    await putImage(f.requestId, lines[1]!.id, `rc/${f.requestId}/l2.png`);
+    const cfg = { ...(await baseCfg()), includeReceipts: true } as never;
+    const m = await buildDocumentModel(prisma, f.requestId, { storage, templateConfig: cfg });
+    expect(m.receipts).toHaveLength(2);
+    const html = renderDocumentHtml(m);
+    expect(html).toContain('صور الإيصالات');
+    expect((html.match(/class="rc-img"/g) ?? []).length).toBe(2);
+    expect(html).toContain('صورة 1 من 1');
+    expect(html).toContain('data:image/jpeg;base64,');
+  });
+
+  it('includeReceipts false/absent: no receipts section', async () => {
+    const f = await createRequestFixture(prisma, { scenario: 'neither', storage });
+    const lines = await prisma.requestLine.findMany({ where: { requestId: f.requestId }, orderBy: { lineNo: 'asc' } });
+    await putImage(f.requestId, lines[0]!.id, `rc/${f.requestId}/a.png`);
+    const base = await baseCfg();
+    for (const cfg of [base, { ...base, includeReceipts: false }]) {
+      const html = renderDocumentHtml(await buildDocumentModel(prisma, f.requestId, { storage, templateConfig: cfg as never }));
+      expect(html).not.toContain('صور الإيصالات');
+      expect(html).not.toContain('class="rc-img"');
+    }
   });
 });
 

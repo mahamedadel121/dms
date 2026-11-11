@@ -3,7 +3,24 @@ import type { Db } from '../common';
 import { getSetting } from '../config';
 import { DomainError } from '../errors';
 import { getStorage, type StorageAdapter } from '../storage';
+import sharp from 'sharp';
 import { amountToArabicWords } from './amountWords';
+
+export interface ReceiptItem {
+  lineNo: number;
+  /** expense type name (Arabic) */
+  typeName: string;
+  /** final line amount, 2 decimals */
+  amount: string;
+  /** 1-based position among this line's current receipts, and their count */
+  n: number;
+  m: number;
+  kind: 'image' | 'pdf';
+  /** downscaled JPEG data URI (kind image) */
+  dataUri?: string;
+  /** original PDF bytes, appended after the rendered sheet (kind pdf) */
+  pdfBytes?: Buffer;
+}
 
 export interface SignatureBlock {
   kind: 'SUBMITTER' | 'STEP';
@@ -40,6 +57,8 @@ export interface DocumentModel {
   signatures: SignatureBlock[];
   signaturePerRow: number;
   showDateTime: boolean;
+  /** only when the template has includeReceipts and at least one readable receipt exists */
+  receipts?: ReceiptItem[];
 }
 
 export interface ModelOptions {
@@ -81,6 +100,56 @@ export async function imageDataUri(
   } catch {
     return undefined;
   }
+}
+
+const RECEIPT_MAX_PX = 1600;
+
+/** EXIF-rotated, max 1600px on the long side, JPEG q80, as a data URI; undefined when unreadable. */
+async function receiptImageDataUri(bytes: Buffer): Promise<string | undefined> {
+  try {
+    const out = await sharp(bytes)
+      .rotate()
+      .resize({ width: RECEIPT_MAX_PX, height: RECEIPT_MAX_PX, fit: 'inside', withoutEnlargement: true })
+      .flatten({ background: '#ffffff' })
+      .jpeg({ quality: 80 })
+      .toBuffer();
+    return `data:image/jpeg;base64,${out.toString('base64')}`;
+  } catch {
+    return undefined;
+  }
+}
+
+async function loadReceipts(
+  db: Db,
+  storage: StorageAdapter | undefined,
+  lines: { id: string; lineNo: number; categoryNameAr: string; amount: { toString(): string } }[],
+): Promise<ReceiptItem[]> {
+  if (!storage || !lines.length) return [];
+  const atts = await db.attachment.findMany({
+    where: { lineId: { in: lines.map((l) => l.id) }, isCurrent: true, supersededById: null },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+  });
+  const items: ReceiptItem[] = [];
+  for (const l of lines) {
+    const mine = atts.filter((a) => a.lineId === l.id && (a.mimeType.startsWith('image/') || a.mimeType === 'application/pdf'));
+    const loaded: Omit<ReceiptItem, 'n' | 'm'>[] = [];
+    for (const a of mine) {
+      let bytes: Buffer;
+      try {
+        bytes = await storage.get(a.storageKey);
+      } catch {
+        continue;
+      }
+      const base = { lineNo: l.lineNo, typeName: l.categoryNameAr, amount: fmtMoney(l.amount.toString()) };
+      if (a.mimeType === 'application/pdf') loaded.push({ ...base, kind: 'pdf', pdfBytes: bytes });
+      else {
+        const dataUri = await receiptImageDataUri(bytes);
+        if (dataUri) loaded.push({ ...base, kind: 'image', dataUri });
+      }
+    }
+    loaded.forEach((x, i) => items.push({ ...x, n: i + 1, m: loaded.length }));
+  }
+  return items;
 }
 
 function resolveStorage(o?: ModelOptions): StorageAdapter | undefined {
@@ -225,6 +294,8 @@ export async function buildDocumentModel(db: Db, requestId: string, o?: ModelOpt
     });
   }
 
+  const receipts = cfg.includeReceipts ? await loadReceipts(db, storage, lines) : [];
+
   const totalFinal = toFixed2(req.totalFinal.toString());
   const totalOriginal = toFixed2(req.totalOriginal.toString());
   return {
@@ -248,6 +319,7 @@ export async function buildDocumentModel(db: Db, requestId: string, o?: ModelOpt
     signatures,
     signaturePerRow: cfg.signature.perRow,
     showDateTime: cfg.signature.showDateTime,
+    receipts: receipts.length ? receipts : undefined,
   };
 }
 

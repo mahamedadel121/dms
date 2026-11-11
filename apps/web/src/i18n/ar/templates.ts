@@ -27,6 +27,7 @@ const dict: Dict = {
   'logoUploaded': 'تم رفع الشعار',
   'showOriginal': 'إظهار القيم الأصلية بجانب المعدّلة',
   'showWords': 'إظهار الإجمالي بالحروف',
+  'includeReceipts': 'إرفاق صور الإيصالات في الكشف',
   'sigPerRow': 'عدد التوقيعات في الصف',
   'submitterLabel': 'عنوان توقيع مقدّم الطلب',
   'sigDateTime': 'إظهار تاريخ ووقت التوقيع',

@@ -99,6 +99,8 @@ export const templateConfigSchema = z.object({
   categoryOrder: z.array(z.string()).optional(),
   showOriginalValues: z.boolean(),
   showAmountInWords: z.boolean(),
+  /** append receipt images (and PDF receipts) of every line after the signatures; absent = false */
+  includeReceipts: z.boolean().optional(),
   footerNoteAr: z.string().optional(),
   signature: z.object({
     perRow: z.number().int().min(1).max(8),

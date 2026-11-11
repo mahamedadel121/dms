@@ -363,6 +363,9 @@ export function TemplateEditorPage({ id }: { id: string }) {
             <div className="space-y-3">
               <Checkbox disabled={readOnly} checked={cfg.showOriginalValues} onChange={(v) => set({ showOriginalValues: v })} label={t('templates.showOriginal')} />
               <Checkbox disabled={readOnly} checked={cfg.showAmountInWords} onChange={(v) => set({ showAmountInWords: v })} label={t('templates.showWords')} />
+              <div>
+                <Switch disabled={readOnly} checked={cfg.includeReceipts ?? false} onChange={(v) => set({ includeReceipts: v })} label={t('templates.includeReceipts')} />
+              </div>
               <div className="grid gap-4 sm:grid-cols-3">
                 <FormField label={t('templates.sigPerRow')}>
                   {(fid) => (

@@ -27,6 +27,7 @@ const dict: Dict = {
   'logoUploaded': 'Logo uploaded',
   'showOriginal': 'Show original values next to corrected ones',
   'showWords': 'Show total in words',
+  'includeReceipts': 'Attach receipt images to the sheet',
   'sigPerRow': 'Signatures per row',
   'submitterLabel': 'Submitter signature label',
   'sigDateTime': 'Show signature date/time',

@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
 import type { PrismaClient, RequestDocument } from '@prisma/client';
+import { PDFDocument } from 'pdf-lib';
 import type { TemplateConfig } from '@dms/shared';
 import type { Db } from '../common';
 import { DomainError } from '../errors';
 import { getStorage, type StorageAdapter } from '../storage';
-import { buildDocumentModel, buildSampleDocumentModel, type ModelOptions } from './model';
+import { buildDocumentModel, buildSampleDocumentModel, type DocumentModel, type ModelOptions } from './model';
 import { renderDocumentHtml } from './html';
 import { htmlToPdf } from './browser';
 
@@ -20,7 +21,24 @@ export async function renderRequestPdf(
   o?: { templateConfig?: TemplateConfig; storage?: StorageAdapter },
 ): Promise<Buffer> {
   const model = await buildDocumentModel(db, requestId, o as ModelOptions);
-  return htmlToPdf(renderDocumentHtml(model));
+  const sheet = await htmlToPdf(renderDocumentHtml(model));
+  return appendReceiptPdfs(sheet, model.receipts);
+}
+
+/** PDF receipts of the lines are appended, in line order, after the rendered sheet. */
+async function appendReceiptPdfs(sheet: Buffer, receipts: DocumentModel['receipts']): Promise<Buffer> {
+  const pdfs = (receipts ?? []).filter((r) => r.kind === 'pdf' && r.pdfBytes);
+  if (!pdfs.length) return sheet;
+  const out = await PDFDocument.load(sheet);
+  for (const r of pdfs) {
+    try {
+      const src = await PDFDocument.load(r.pdfBytes!, { ignoreEncryption: true });
+      for (const p of await out.copyPages(src, src.getPageIndices())) out.addPage(p);
+    } catch {
+      // unreadable PDF receipt: skipped (its caption block stays in the sheet)
+    }
+  }
+  return Buffer.from(await out.save());
 }
 
 /** HTML of a template filled with sample data (template editor, no request chosen). */

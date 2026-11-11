@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import type { DocumentModel, SignatureBlock } from './model';
+import type { DocumentModel, ReceiptItem, SignatureBlock } from './model';
 import { fmtMoney } from './model';
 
 export function escapeHtml(v: unknown): string {
@@ -75,6 +75,14 @@ table{width:100%;border-collapse:collapse}
 .sig-img{height:44px;max-width:100%;object-fit:contain;display:block;margin:4px auto}
 .sig-noimg{height:44px}
 .sig-at{font-size:10px;color:#555;direction:ltr}
+.receipts{page-break-before:always;break-before:page}
+.rc-title{font-size:18px;font-weight:700;color:#1a2a6c;margin:0 0 8px;border-bottom:2px solid #1a2a6c;padding-bottom:4px}
+.rc-page{page-break-after:always;break-after:page}
+.rc-page.rc-last{page-break-after:auto;break-after:auto}
+.rc{border:1px solid #bbb;padding:6px;margin-bottom:8px;text-align:center;page-break-inside:avoid;break-inside:avoid}
+.rc-img{display:block;margin:0 auto;max-width:100%;max-height:105mm;object-fit:contain}
+.rc-cap{margin-top:4px;font-size:12px;font-weight:700;color:#1a2a6c}
+.rc-pdf{padding:14px 8px;background:#eef1f8}
 `;
 
 function sigHtml(b: SignatureBlock): string {
@@ -85,6 +93,24 @@ ${b.onBehalfOf ? `<div class="sig-obo">${escapeHtml(b.onBehalfOf)}</div>` : ''}
 ${b.imageDataUri ? `<img class="sig-img" alt="" src="${b.imageDataUri}"/>` : '<div class="sig-noimg"></div>'}
 ${b.at ? `<div class="sig-at">${escapeHtml(b.at)}</div>` : ''}
 </div>`;
+}
+
+function receiptHtml(r: ReceiptItem): string {
+  if (r.kind === 'pdf') {
+    return `<div class="rc rc-pdf" data-line="${r.lineNo}"><div class="rc-cap">بند ${r.lineNo} — ${escapeHtml(r.typeName)} — مستند PDF مرفق (الصفحات التالية)</div></div>`;
+  }
+  return `<div class="rc" data-line="${r.lineNo}"><img class="rc-img" alt="" src="${r.dataUri}"/>
+<div class="rc-cap">بند ${r.lineNo} — ${escapeHtml(r.typeName)} — <span class="num">${escapeHtml(r.amount)} EGP</span> — صورة ${r.n} من ${r.m}</div></div>`;
+}
+
+function receiptsHtml(items: ReceiptItem[] | undefined): string {
+  if (!items?.length) return '';
+  const pages: string[] = [];
+  for (let i = 0; i < items.length; i += 2) {
+    const last = i + 2 >= items.length;
+    pages.push(`<div class="rc-page${last ? ' rc-last' : ''}">${items.slice(i, i + 2).map(receiptHtml).join('')}</div>`);
+  }
+  return `<section class="receipts"><h2 class="rc-title">صور الإيصالات <span dir="ltr" style="font-size:11px;color:#666">Receipts</span></h2>${pages.join('')}</section>`;
 }
 
 export function renderDocumentHtml(m: DocumentModel): string {
@@ -131,5 +157,5 @@ ${m.amountWords ? `<div class="row"><span class="words total-words">${escapeHtml
 </div>` : ''}
 ${m.footerNoteAr ? `<div class="footer-note">${escapeHtml(m.footerNoteAr)}</div>` : ''}
 <div class="sigs" style="grid-template-columns:repeat(${perRow},1fr)">${m.signatures.map(sigHtml).join('')}</div>
-</div></body></html>`;
+</div>${receiptsHtml(m.receipts)}</body></html>`;
 }
