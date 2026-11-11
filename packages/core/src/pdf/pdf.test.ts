@@ -117,7 +117,7 @@ describe('PDF rendering + finalize', () => {
     const d1 = await finalizeRequestPdf(prisma, storage, f.requestId);
     expect(d1.isLocked).toBe(true);
     expect(d1.kind).toBe('FINAL');
-    expect(d1.storageKey).toBe(`documents/${f.number}/final.pdf`);
+    expect(d1.storageKey).toBe(`documents/${f.requestId}/${f.number}-final.pdf`);
     const bytes = await storage.get(d1.storageKey);
     expect(sha256Hex(bytes)).toBe(d1.sha256);
     expect(d1.sizeBytes).toBe(bytes.length);
@@ -130,6 +130,19 @@ describe('PDF rendering + finalize', () => {
     // tamper -> verify fails (the file is immutable through the app; this simulates disk tampering)
     await storage.put(d1.storageKey, Buffer.from('tampered'));
     expect((await verifyFinalPdf(prisma, storage, f.requestId)).ok).toBe(false);
+  }, 90_000);
+
+  it('never adopts a leftover file from another request that had the same number (db rebuilt, storage kept)', async () => {
+    const f = await createRequestFixture(prisma, { scenario: 'maintenance', storage });
+    // what an earlier database incarnation left behind for the same request number
+    const foreign = Buffer.from('%PDF-1.4 foreign request with the same number');
+    await storage.put(`documents/${f.number}/final.pdf`, foreign);
+    const d = await finalizeRequestPdf(prisma, storage, f.requestId);
+    expect(d.storageKey).toContain(f.requestId);
+    const bytes = await storage.get(d.storageKey);
+    expect(bytes.equals(foreign)).toBe(false);
+    expect(bytes.length).toBeGreaterThan(5 * 1024);
+    expect(sha256Hex(bytes)).toBe(d.sha256);
   }, 90_000);
 
   it('concurrent finalize yields one document', async () => {

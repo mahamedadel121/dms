@@ -51,7 +51,9 @@ export async function finalizeRequestPdf(
   if (!req) throw new DomainError('NOT_FOUND', 'Request not found');
   if (req.status !== 'PAID') throw new DomainError('INVALID_STATE', 'Final PDF can only be generated for a PAID request');
 
-  const key = `documents/${req.number}/final.pdf`;
+  // Keyed by the request id (unique forever), not the request number: numbers repeat after a database
+  // rebuild or restore, and a leftover file under a number-based key was adopted as another request's PDF.
+  const key = finalPdfKey(req);
   if (await store.exists(key)) {
     // a previous attempt stored the file but crashed before the row insert: adopt the stored bytes
     const stored = await store.get(key);
@@ -67,6 +69,11 @@ export async function finalizeRequestPdf(
     return insertDocument(prisma, requestId, req, key, sha256Hex(stored), stored.length);
   }
   return insertDocument(prisma, requestId, req, key, sha256Hex(pdf), pdf.length);
+}
+
+/** Storage key of a request's final PDF: unique per request id; the number is only there for humans. */
+export function finalPdfKey(req: { id: string; number: string }): string {
+  return `documents/${req.id}/${req.number}-final.pdf`;
 }
 
 async function insertDocument(
