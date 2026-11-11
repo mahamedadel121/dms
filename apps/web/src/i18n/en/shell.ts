@@ -57,6 +57,10 @@ const dict: Dict = {
   'nav.label': 'Main navigation',
   'profile.device': 'Device',
   'profile.current': 'Current',
+  'demo.switch': 'Switch user',
+  'demo.nowAs': 'You are now: {role} — {name}',
+  'demo.quickLogin': 'Quick sign-in (demo mode)',
+  'demo.switchFailed': 'Could not switch user',
   'profile.signedInAs': 'Signed in as',
 };
 

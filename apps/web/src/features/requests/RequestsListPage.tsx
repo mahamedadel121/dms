@@ -7,6 +7,7 @@ import { FilePlus2, FileSearch } from 'lucide-react';
 import type { RequestTypeDto } from '@dms/shared';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { isDemoMode } from '@/lib/demo';
 import { cairoDayToIso } from '@/lib/format';
 import {
   Avatar, Button, Code, DataTable, DateRange, DateText, ErrorBlock, FilterBar, FormField, Icon, LookupSelect, Money, Page, PageHeader, SearchInput, Select, StatusChip,
@@ -25,7 +26,7 @@ export function RequestsListPage() {
   const router = useRouter();
   const canSubmit = can('requests.create');
   const types = useQuery({ queryKey: ['request-types', 'web'], queryFn: () => api.get<RequestTypeDto[]>('/request-types'), enabled: canSubmit });
-  const showNew = canSubmit && webTypes(types.data ?? []).length > 0;
+  const showNew = !isDemoMode() && canSubmit && webTypes(types.data ?? []).length > 0;
   const [f, setF] = useState(EMPTY);
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState('submittedAt:desc');

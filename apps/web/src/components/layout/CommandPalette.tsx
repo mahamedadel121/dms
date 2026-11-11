@@ -7,7 +7,7 @@ import { CornerDownLeft, FileText, Search } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useT } from '@/lib/i18n';
-import { NAV } from '@/lib/nav';
+import { visibleNav } from '@/lib/nav';
 import { cn } from '@/lib/cn';
 import { translate } from '@/i18n';
 import { Code, Icon, Input, Modal, Money } from '@/components/ui';
@@ -70,7 +70,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const entries = useMemo<Entry[]>(() => {
     const q = term.toLowerCase();
     const pages: Entry[] = [];
-    for (const g of NAV) {
+    for (const g of visibleNav()) {
       for (const i of g.items) {
         if (!can(i.permission)) continue;
         const labels = [translate('ar', i.labelKey), translate('en', i.labelKey)];

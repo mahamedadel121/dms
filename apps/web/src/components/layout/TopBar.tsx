@@ -7,6 +7,7 @@ import { usePrefs } from '@/lib/prefs';
 import { findNavItem } from '@/lib/nav';
 import { Button, Icon, IconButton } from '@/components/ui';
 import { NotificationsBell } from './NotificationsBell';
+import { DemoSwitcher, DemoToastRelay } from './Demo';
 
 const OUTSIDE_NAV: Record<string, string> = {
   '/profile': 'shell.page.profile',
@@ -52,6 +53,8 @@ export function TopBar({ onMenu, onSearch }: { onMenu: () => void; onSearch: () 
         label={resolvedTheme === 'dark' ? t('shell.pref.light') : t('shell.pref.dark')}
         onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
       />
+      <DemoSwitcher />
+      <DemoToastRelay />
       <NotificationsBell />
     </header>
   );

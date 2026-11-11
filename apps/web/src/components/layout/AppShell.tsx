@@ -11,6 +11,7 @@ import { findNavItem } from '@/lib/nav';
 import { cn } from '@/lib/cn';
 import { BrandMark } from '@/components/brand/BrandMark';
 import { Banner, Drawer, Icon, IconButton } from '@/components/ui';
+import { Brand } from './Brand';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 import { CommandPalette } from './CommandPalette';
@@ -68,7 +69,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className={cn('flex h-topbar items-center px-4', collapsed ? 'justify-center px-0' : 'justify-between')}>
           {!collapsed && (
             <Link href="/" aria-label={t('common.appName')}>
-              <BrandMark withName />
+              <Brand />
             </Link>
           )}
           <IconButton
@@ -90,7 +91,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         side="start"
         width="sm"
         testId="nav-drawer"
-        title={<BrandMark withName />}
+        title={<Brand />}
         footer={<UserMenuInline onDone={() => setMenu(false)} />}
       >
         <div className="-mx-5 -my-4 flex flex-col">

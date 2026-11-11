@@ -57,6 +57,10 @@ const dict: Dict = {
   'nav.label': 'التنقل الرئيسي',
   'profile.device': 'الجهاز',
   'profile.current': 'الحالية',
+  'demo.switch': 'تبديل المستخدم',
+  'demo.nowAs': 'أنت الآن: {role} — {name}',
+  'demo.quickLogin': 'دخول سريع (وضع العرض)',
+  'demo.switchFailed': 'تعذر تبديل المستخدم',
   'profile.signedInAs': 'مسجَّل الدخول باسم',
 };
 

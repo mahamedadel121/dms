@@ -7,7 +7,7 @@ import {
   Network, Receipt, ScrollText, Server, Settings, Settings2, ShieldCheck, Tags, Truck, UserCheck, UserCog, Users,
   type LucideIcon,
 } from 'lucide-react';
-import { NAV, navSlug } from '@/lib/nav';
+import { navSlug, visibleNav } from '@/lib/nav';
 import { cn } from '@/lib/cn';
 import { useAuth } from '@/lib/auth';
 import { useT } from '@/lib/i18n';
@@ -28,7 +28,7 @@ export function Sidebar({ onNavigate, collapsed = false }: { onNavigate?: () => 
 
   return (
     <nav aria-label={t('shell.nav.label')} className={cn('flex-1 overflow-y-auto py-3', collapsed ? 'space-y-1 px-2' : 'space-y-5 px-3')}>
-      {NAV.map((g, gi) => {
+      {visibleNav().map((g, gi) => {
         const items = g.items.filter((i) => can(i.permission));
         if (items.length === 0) return null;
         return (

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PERMISSIONS as P } from '@dms/shared';
-import { NAV, findNavItem, navSlug } from './nav';
+import { DEMO_NAV_HREFS, NAV, findNavItem, navSlug, visibleNav } from './nav';
 
 describe('nav', () => {
   it('navSlug', () => {
@@ -24,6 +24,24 @@ describe('nav', () => {
   it('request types needs request_types.manage', () => {
     const item = NAV.flatMap((g) => g.items).find((i) => i.href === '/admin/request-types');
     expect(item?.permission).toBe(P.REQUEST_TYPES_MANAGE);
+  });
+
+  it('visibleNav is the full NAV unless demo mode', () => {
+    expect(visibleNav(false)).toBe(NAV);
+  });
+
+  it('demo mode keeps only the allow-list, in nav order', () => {
+    const hrefs = visibleNav(true).flatMap((g) => g.items.map((i) => i.href));
+    expect(hrefs).toEqual([
+      '/inbox', '/requests', '/vehicle-changes', '/assignments', '/dashboard', '/reports',
+      '/workflows', '/templates', '/master/expense-types', '/master/drivers', '/master/vehicles', '/admin/users',
+    ]);
+    expect(hrefs).not.toContain('/sap');
+    expect(visibleNav(true).every((g) => g.items.length > 0)).toBe(true);
+    // routes stay reachable: findNavItem still resolves hidden pages
+    expect(findNavItem('/sap')).not.toBeNull();
+    const all = NAV.flatMap((g) => g.items.map((i) => i.href));
+    for (const h of DEMO_NAV_HREFS) expect(all).toContain(h);
   });
 
   it('groups are work, insight, config, data, admin', () => {

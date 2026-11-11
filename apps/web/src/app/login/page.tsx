@@ -7,7 +7,8 @@ import { useAuth } from '@/lib/auth';
 import { useT } from '@/lib/i18n';
 import { usePrefs } from '@/lib/prefs';
 import { ApiError } from '@/lib/api';
-import { BrandMark } from '@/components/brand/BrandMark';
+import { Brand } from '@/components/layout/Brand';
+import { DemoQuickLogin } from '@/components/layout/Demo';
 import { Banner, Button, FormField, Icon, IconButton, Input, Seal } from '@/components/ui';
 
 const POINTS: { key: 'point1' | 'point2' | 'point3'; icon: LucideIcon }[] = [
@@ -55,7 +56,7 @@ export default function LoginPage() {
       <div className="order-2 flex items-center justify-center bg-canvas px-6 py-12 lg:order-none">
         <div className="w-full max-w-sm">
           <div className="animate-rise" style={rise(0)}>
-            <BrandMark size={40} withName />
+            <Brand size={40} />
           </div>
           <div className="rule-double mt-5 w-[72px] animate-rise" style={rise(1)} />
           <h1 className="display mt-6 animate-rise text-3xl text-ink" style={rise(2)}>
@@ -116,6 +117,8 @@ export default function LoginPage() {
               </Button>
             </div>
           </form>
+
+          <DemoQuickLogin onDone={() => router.replace('/')} />
 
           <div className="mt-6 flex items-center gap-3 text-sm text-ink-3">
             <button type="button" className="font-medium hover:text-ink" onClick={() => setLocale(locale === 'ar' ? 'en' : 'ar')}>

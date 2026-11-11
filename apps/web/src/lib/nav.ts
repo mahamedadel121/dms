@@ -1,4 +1,5 @@
 import { PERMISSIONS as P } from '@dms/shared';
+import { isDemoMode } from './demo';
 
 export interface NavItem {
   href: string;
@@ -73,6 +74,18 @@ export const NAV: NavGroup[] = [
     ],
   },
 ];
+
+/** Pages shown in demo mode; every other route stays reachable by URL only. */
+export const DEMO_NAV_HREFS: readonly string[] = [
+  '/inbox', '/requests', '/vehicle-changes', '/assignments', '/dashboard', '/reports',
+  '/workflows', '/templates', '/master/expense-types', '/master/drivers', '/master/vehicles', '/admin/users',
+];
+
+/** NAV as shown to the user: in demo mode only the demo allow-list (empty groups dropped). */
+export function visibleNav(demo: boolean = isDemoMode()): NavGroup[] {
+  if (!demo) return NAV;
+  return NAV.map((g) => ({ ...g, items: g.items.filter((i) => DEMO_NAV_HREFS.includes(i.href)) })).filter((g) => g.items.length > 0);
+}
 
 /** `'/admin/request-types'` -> `'admin-request-types'` (used for `data-testid="nav-<slug>"`). */
 export function navSlug(href: string): string {
